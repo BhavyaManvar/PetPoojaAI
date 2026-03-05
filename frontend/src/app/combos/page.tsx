@@ -4,14 +4,14 @@ import { useState } from "react";
 import { useCombos } from "@/hooks/useCombos";
 import { fetchUpsell } from "@/services/api";
 import { DataTable } from "@/components/tables/data-table";
-import { formatCurrency } from "@/utils/helpers";
 import type { Combo, UpsellResult } from "@/types/order";
 
 export default function CombosPage() {
   const { data: combos, isLoading } = useCombos();
-  const [itemName, setItemName] = useState("");
-  const [upsells, setUpsells] = useState<UpsellResult[]>([]);
+  const [itemId, setItemId] = useState("");
+  const [upsellResult, setUpsellResult] = useState<UpsellResult | null>(null);
   const [upsellLoading, setUpsellLoading] = useState(false);
+  const [upsellError, setUpsellError] = useState("");
 
   const comboColumns = [
     { key: "antecedent", header: "If Customer Orders" },
@@ -36,34 +36,20 @@ export default function CombosPage() {
     },
   ];
 
-  const upsellColumns = [
-    { key: "recommended_item", header: "Recommended Item" },
-    { key: "strategy", header: "Strategy" },
-    {
-      key: "confidence",
-      header: "Confidence",
-      className: "text-right",
-      render: (r: UpsellResult) =>
-        r.confidence != null ? `${(r.confidence * 100).toFixed(0)}%` : "—",
-    },
-    {
-      key: "margin",
-      header: "Margin",
-      className: "text-right",
-      render: (r: UpsellResult) =>
-        r.margin != null ? formatCurrency(r.margin) : "—",
-    },
-  ];
-
   const handleUpsell = async () => {
-    const trimmed = itemName.trim();
-    if (!trimmed) return;
+    const id = parseInt(itemId.trim(), 10);
+    if (isNaN(id)) {
+      setUpsellError("Please enter a valid item ID (number).");
+      return;
+    }
     setUpsellLoading(true);
+    setUpsellError("");
+    setUpsellResult(null);
     try {
-      const results = await fetchUpsell(trimmed);
-      setUpsells(results);
+      const result = await fetchUpsell(id);
+      setUpsellResult(result);
     } catch {
-      setUpsells([]);
+      setUpsellError("Failed to fetch upsell. Check if the backend is running.");
     } finally {
       setUpsellLoading(false);
     }
@@ -85,32 +71,81 @@ export default function CombosPage() {
       <div className="rounded-xl border border-[var(--border)] bg-[var(--card)] p-6 shadow-sm space-y-4">
         <h3 className="text-lg font-semibold">Upsell Finder</h3>
         <p className="text-sm text-[var(--muted-foreground)]">
-          Enter an item name to get upsell recommendations
+          Enter a menu item ID to get AI-powered upsell recommendations
         </p>
         <div className="flex gap-3">
           <input
-            type="text"
-            value={itemName}
-            onChange={(e) => setItemName(e.target.value)}
+            type="number"
+            min={1}
+            value={itemId}
+            onChange={(e) => setItemId(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleUpsell()}
-            placeholder="e.g. Butter Chicken"
-            className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            placeholder="e.g. 1"
+            className="w-40 rounded-lg border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
           <button
             onClick={handleUpsell}
-            disabled={upsellLoading || !itemName.trim()}
+            disabled={upsellLoading || !itemId.trim()}
             className="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {upsellLoading ? "Loading..." : "Get Upsells"}
           </button>
         </div>
 
-        {upsells.length > 0 && (
-          <DataTable
-            columns={upsellColumns}
-            data={upsells as Record<string, unknown>[]}
-            emptyMessage="No upsell suggestions"
-          />
+        {upsellError && (
+          <p className="text-sm text-red-500">{upsellError}</p>
+        )}
+
+        {upsellResult && (
+          <div className="space-y-3">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-[var(--muted-foreground)]">Item:</span>
+                <span className="font-semibold">{upsellResult.item}</span>
+              </div>
+              {upsellResult.recommended_addon ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[var(--muted-foreground)]">Recommended Add-on:</span>
+                    <span className="rounded-full bg-green-100 px-3 py-0.5 text-sm font-semibold text-green-800">
+                      {upsellResult.recommended_addon}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[var(--muted-foreground)]">Strategy:</span>
+                    <span className="rounded-full bg-blue-100 px-3 py-0.5 text-xs font-medium text-blue-800">
+                      {upsellResult.strategy}
+                    </span>
+                  </div>
+                  {upsellResult.confidence != null && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--muted-foreground)]">Confidence:</span>
+                      <span className="text-sm">{(upsellResult.confidence * 100).toFixed(0)}%</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-[var(--muted-foreground)]">No upsell recommendation found for this item.</p>
+              )}
+            </div>
+
+            {upsellResult.alternatives && upsellResult.alternatives.length > 0 && (
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4">
+                <p className="text-sm font-medium text-[var(--muted-foreground)] mb-2">Alternatives:</p>
+                <div className="flex flex-wrap gap-2">
+                  {upsellResult.alternatives.map((alt, i) => (
+                    <span
+                      key={i}
+                      className="rounded-full border border-[var(--border)] bg-[var(--muted)] px-3 py-1 text-xs"
+                    >
+                      {alt.addon}{" "}
+                      <span className="text-[var(--muted-foreground)]">({alt.strategy})</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

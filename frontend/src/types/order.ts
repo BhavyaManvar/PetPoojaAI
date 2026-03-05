@@ -9,6 +9,8 @@ export interface KPIData {
 }
 
 export interface Combo {
+  antecedent: string;
+  consequent: string;
   combo: string;
   support: number;
   confidence: number;
@@ -19,8 +21,9 @@ export interface UpsellResult {
   item: string;
   recommended_addon: string | null;
   strategy: string | null;
-  confidence?: number;
+  confidence?: number | null;
   margin?: number;
+  alternatives?: { addon: string; strategy: string }[];
 }
 
 export interface ParsedVoiceItem {
