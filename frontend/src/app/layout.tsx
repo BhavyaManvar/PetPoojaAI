@@ -1,11 +1,10 @@
 import "@/styles/globals.css";
 import type { Metadata } from "next";
 import { Providers } from "@/components/providers";
-import { Sidebar } from "@/components/sidebar";
 
 export const metadata: Metadata = {
-  title: "PetPooja AI Revenue Copilot",
-  description: "AI-powered revenue intelligence for restaurants",
+  title: "Restaurant AI Revenue & Voice Copilot",
+  description: "Enterprise revenue intelligence and AI voice ordering for restaurants",
 };
 
 export default function RootLayout({
@@ -15,12 +14,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-[var(--background)]">
+      <body className="min-h-screen bg-surface-bg font-sans">
         <Providers>
-          <div className="flex min-h-screen">
-            <Sidebar />
-            <main className="flex-1 overflow-auto p-6 lg:p-8">{children}</main>
-          </div>
+          {children}
         </Providers>
       </body>
     </html>

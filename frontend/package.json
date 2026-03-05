@@ -1,12 +1,13 @@
 {
-  "name": "petpooja-ai-frontend",
+  "name": "restaurant-ai-copilot",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed": "npx tsx src/scripts/seed-firestore.ts"
   },
   "dependencies": {
     "next": "^15.1.0",
@@ -20,7 +21,9 @@
     "lucide-react": "^0.468.0",
     "@radix-ui/react-dialog": "^1.1.4",
     "@radix-ui/react-slot": "^1.1.1",
-    "@radix-ui/react-tabs": "^1.1.2"
+    "@radix-ui/react-tabs": "^1.1.2",
+    "firebase": "^11.1.0",
+    "framer-motion": "^11.15.0"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
