@@ -1,11 +1,17 @@
 "use client";
 
 import { formatCurrency } from "@/utils/helpers";
-import type { OrderLineItem } from "@/types/order";
+
+interface ConfirmItem {
+  item_name: string;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+}
 
 interface OrderConfirmationModalProps {
   open: boolean;
-  items: OrderLineItem[];
+  items: ConfirmItem[];
   total: number;
   onConfirm: () => void;
   onCancel: () => void;
