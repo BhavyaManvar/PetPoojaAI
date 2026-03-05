@@ -45,7 +45,7 @@ def test_classify_assigns_valid_quadrants(menu_df, order_items_df):
     result = classify_menu_items(menu_df, order_items_df)
     valid = {"Star", "Puzzle", "Plow Horse", "Dog"}
     for item in result:
-        assert item["quadrant"] in valid
+        assert item["menu_class"] in valid
 
 
 def test_hidden_stars_have_reason(menu_df, order_items_df):
