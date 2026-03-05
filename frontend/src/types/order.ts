@@ -10,16 +10,32 @@ export interface KPIData {
 
 export interface Combo {
   combo: string;
+  antecedent: string;
+  consequent: string;
   support: number;
   confidence: number;
   lift: number;
 }
 
+export interface BasketStats {
+  total_baskets: number;
+  avg_basket_size: number;
+  max_basket_size: number;
+  min_basket_size: number;
+}
+
+export interface TopCombosResponse {
+  combos: Combo[];
+  basket_stats: BasketStats | null;
+}
+
 export interface UpsellResult {
   item: string;
   recommended_addon: string | null;
+  addon_id: number | null;
   strategy: string | null;
   confidence?: number;
+  lift?: number;
   margin?: number;
 }
 

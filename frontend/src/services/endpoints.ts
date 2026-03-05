@@ -6,7 +6,9 @@ export const ENDPOINTS = {
   hiddenStars: `${API_BASE}/menu/hidden-stars`,
   riskItems: `${API_BASE}/menu/risk-items`,
   topCombos: `${API_BASE}/combos/top`,
-  upsellForItem: (itemId: number) => `${API_BASE}/upsell/for-item?item_id=${itemId}`,
+  basketStats: `${API_BASE}/combos/basket-stats`,
+  upsellForItem: (itemId: number) => `${API_BASE}/combos/upsell/for-item?item_id=${itemId}`,
+  upsellBatch: `${API_BASE}/combos/upsell/batch`,
   voiceParse: `${API_BASE}/voice/parse`,
   orderPush: `${API_BASE}/order/push`,
 } as const;

@@ -26,8 +26,7 @@ app.add_middleware(
 
 app.include_router(kpi_router, prefix="/kpis", tags=["KPIs"])
 app.include_router(menu_router, prefix="/menu", tags=["Menu Intelligence"])
-app.include_router(combo_router, prefix="/combos", tags=["Combo Engine"])
-app.include_router(combo_router, prefix="/upsell", tags=["Upsell Engine"])
+app.include_router(combo_router, prefix="/combos", tags=["Combo & Upsell Engine"])
 app.include_router(voice_router, prefix="/voice", tags=["Voice Copilot"])
 app.include_router(order_router, prefix="/order", tags=["Order / PoS"])
 
