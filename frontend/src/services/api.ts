@@ -1,5 +1,5 @@
 import { ENDPOINTS } from "./endpoints";
-import type { KPIData, Combo, UpsellResult, VoiceParseResponse, OrderResponse, OrderLineItem } from "@/types/order";
+import type { KPIData, Combo, UpsellResult, VoiceParseResponse, OrderResponse, OrderLineItem, TopCombosResponse } from "@/types/order";
 import type { MenuItem, HiddenStar, RiskItem } from "@/types/menu";
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -32,13 +32,24 @@ export async function fetchRiskItems(): Promise<RiskItem[]> {
 }
 
 // ── Combos & Upsell ─────────────────────────────────────────────────────────────
-export async function fetchTopCombos(): Promise<Combo[]> {
-  const data = await fetchJSON<{ combos: Combo[] }>(ENDPOINTS.topCombos);
-  return data.combos;
+export async function fetchTopCombos(category?: string): Promise<TopCombosResponse> {
+  const url = category
+    ? `${ENDPOINTS.topCombos}?category=${encodeURIComponent(category)}`
+    : ENDPOINTS.topCombos;
+  return fetchJSON<TopCombosResponse>(url);
 }
 
 export function fetchUpsell(itemId: number): Promise<UpsellResult> {
   return fetchJSON<UpsellResult>(ENDPOINTS.upsellForItem(itemId));
+}
+
+export async function fetchUpsellBatch(itemIds: number[]): Promise<UpsellResult[]> {
+  const data = await fetchJSON<{ results: UpsellResult[] }>(ENDPOINTS.upsellBatch, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_ids: itemIds }),
+  });
+  return data.results;
 }
 
 // ── Voice Copilot ───────────────────────────────────────────────────────────────

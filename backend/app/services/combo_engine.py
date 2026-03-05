@@ -1,9 +1,18 @@
 """Combo Engine — market basket analysis using mlxtend association rules.
 
 Falls back to a lightweight manual apriori if mlxtend is unavailable.
+
+Key concepts:
+    Basket       — the set of items in a single order
+    Support      — fraction of orders containing the item-pair
+    Confidence   — P(consequent | antecedent)
+    Lift         — confidence / expected_confidence (>1 means positive correlation)
 """
 
+from __future__ import annotations
+
 from itertools import combinations
+from typing import Any
 
 import pandas as pd
 
@@ -18,13 +27,57 @@ except ImportError:
     _HAS_MLXTEND = False
 
 
+# ── TASK 1: Build Order Baskets ─────────────────────────────────────────────────
+
+def build_order_baskets(order_items_df: pd.DataFrame) -> dict[Any, list[str]]:
+    """Build order baskets: {order_id: [item_name, ...]}
+
+    Example output::
+
+        {101: ["Burger", "Fries", "Coke"],
+         102: ["Pizza", "Coke"]}
+    """
+    if order_items_df.empty:
+        return {}
+    return (
+        order_items_df.groupby("order_id")["item_name"]
+        .apply(list)
+        .to_dict()
+    )
+
+
+def get_basket_stats(order_items_df: pd.DataFrame) -> dict:
+    """Return high-level basket statistics useful for dashboards."""
+    baskets = build_order_baskets(order_items_df)
+    if not baskets:
+        return {"total_baskets": 0, "avg_basket_size": 0, "max_basket_size": 0, "min_basket_size": 0}
+    sizes = [len(v) for v in baskets.values()]
+    return {
+        "total_baskets": len(sizes),
+        "avg_basket_size": round(sum(sizes) / len(sizes), 2),
+        "max_basket_size": max(sizes),
+        "min_basket_size": min(sizes),
+    }
+
+
+# ── TASK 2: Combo Recommendation (Market Basket Analysis) ───────────────────────
+
 def get_top_combos(
     order_items_df: pd.DataFrame,
     min_support: float | None = None,
     min_confidence: float | None = None,
     top_n: int = 10,
 ) -> list[dict]:
-    """Return the top item-pair combos ranked by confidence."""
+    """Return the top item-pair combos ranked by confidence.
+
+    Each dict contains:
+        combo        — "Burger + Fries"
+        antecedent   — "Burger"
+        consequent   — "Fries"
+        support      — float
+        confidence   — float
+        lift         — float
+    """
     if order_items_df.empty:
         return []
 
@@ -34,6 +87,34 @@ def get_top_combos(
     if _HAS_MLXTEND:
         return _mlxtend_combos(order_items_df, min_support, min_confidence, top_n)
     return _manual_combos(order_items_df, min_support, min_confidence, top_n)
+
+
+def get_combos_by_category(
+    order_items_df: pd.DataFrame,
+    menu_df: pd.DataFrame,
+    category: str | None = None,
+    min_support: float | None = None,
+    min_confidence: float | None = None,
+    top_n: int = 10,
+) -> list[dict]:
+    """Filter combos so at least one item belongs to the given category."""
+    combos = get_top_combos(order_items_df, min_support, min_confidence, top_n=50)
+    if not category:
+        return combos[:top_n]
+
+    # Build item→category lookup from menu
+    cat_map: dict[str, str] = {}
+    if not menu_df.empty and "item_name" in menu_df.columns and "category" in menu_df.columns:
+        cat_map = dict(zip(menu_df["item_name"], menu_df["category"]))
+
+    filtered = []
+    cat_lower = category.lower()
+    for c in combos:
+        a_cat = cat_map.get(c["antecedent"], "").lower()
+        b_cat = cat_map.get(c["consequent"], "").lower()
+        if cat_lower in (a_cat, b_cat):
+            filtered.append(c)
+    return filtered[:top_n]
 
 
 # ── mlxtend-based implementation ────────────────────────────────────────────────
@@ -63,12 +144,18 @@ def _mlxtend_combos(
         (rules["antecedents"].apply(len) == 1) & (rules["consequents"].apply(len) == 1)
     ].copy()
 
+    rules["antecedent"] = rules["antecedents"].apply(lambda x: list(x)[0])
+    rules["consequent"] = rules["consequents"].apply(lambda x: list(x)[0])
     rules["combo"] = rules.apply(
-        lambda r: f"{list(r['antecedents'])[0]} + {list(r['consequents'])[0]}", axis=1
+        lambda r: f"{r['antecedent']} + {r['consequent']}", axis=1
     )
     rules = rules.sort_values("confidence", ascending=False).head(top_n)
 
-    return rules[["combo", "support", "confidence", "lift"]].round(4).to_dict(orient="records")
+    return (
+        rules[["combo", "antecedent", "consequent", "support", "confidence", "lift"]]
+        .round(4)
+        .to_dict(orient="records")
+    )
 
 
 # ── Fallback manual implementation ──────────────────────────────────────────────
@@ -99,19 +186,23 @@ def _manual_combos(
         support = count / total
         if support < min_support:
             continue
-        conf_a = count / item_counts[a] if item_counts.get(a) else 0
-        conf_b = count / item_counts[b] if item_counts.get(b) else 0
-        confidence = max(conf_a, conf_b)
-        if confidence < min_confidence:
-            continue
-        lift = (support / ((item_counts[a] / total) * (item_counts[b] / total))) if item_counts.get(a) and item_counts.get(b) else 0
 
-        rules.append({
-            "combo": f"{a} + {b}",
-            "support": round(support, 4),
-            "confidence": round(confidence, 4),
-            "lift": round(lift, 4),
-        })
+        # Generate both direction rules (A→B and B→A)
+        for ant, cons in [(a, b), (b, a)]:
+            conf = count / item_counts[ant] if item_counts.get(ant) else 0
+            if conf < min_confidence:
+                continue
+            expected = (item_counts.get(ant, 0) / total) * (item_counts.get(cons, 0) / total)
+            lift = (support / expected) if expected > 0 else 0
+
+            rules.append({
+                "combo": f"{ant} + {cons}",
+                "antecedent": ant,
+                "consequent": cons,
+                "support": round(support, 4),
+                "confidence": round(conf, 4),
+                "lift": round(lift, 4),
+            })
 
     rules.sort(key=lambda r: r["confidence"], reverse=True)
     return rules[:top_n]
