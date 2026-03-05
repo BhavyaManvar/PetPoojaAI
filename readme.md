@@ -5,6 +5,7 @@
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Status-Prototype-success)
 
+
 > An AI-powered system that analyzes restaurant PoS data to optimize menu profitability and automates phone-based ordering using a multilingual voice assistant.
 
 ---
