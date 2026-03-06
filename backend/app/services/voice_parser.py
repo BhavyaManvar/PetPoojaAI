@@ -195,6 +195,56 @@ def _extract_qty_and_item(segment: str) -> tuple[int, str]:
 
 
 # ---------------------------------------------------------------------------
+# Generic food aliases → default menu item mapping
+# When users say "pizza" or "pizzas" without specifying which one, map to the
+# most popular / default variant.
+# ---------------------------------------------------------------------------
+_GENERIC_ALIASES: dict[str, str] = {
+    "pizza": "margherita pizza",
+    "pizzas": "margherita pizza",
+    "burger": "classic veg burger",
+    "burgers": "classic veg burger",
+    "naan": "butter naan",
+    "roti": "butter roti",
+    "dosa": "masala dosa",
+    "biryani": "veg biryani",
+    "pasta": "penne arrabiata",
+    "momos": "veg momos",
+    "momo": "veg momos",
+    "thali": "veg thali",
+    "wrap": "paneer wrap",
+    "sandwich": "veg sandwich",
+    "rice": "jeera rice",
+    "dal": "dal tadka",
+    "paratha": "aloo paratha",
+    "chai": "masala chai",
+    "tea": "masala chai",
+    "coffee": "cold coffee",
+    "lassi": "sweet lassi",
+    "juice": "fresh lime soda",
+    "fries": "french fries",
+    "nachos": "loaded nachos",
+    "soup": "tomato soup",
+    "salad": "garden salad",
+    "ice cream": "vanilla ice cream",
+    "milkshake": "chocolate milkshake",
+    "shake": "chocolate milkshake",
+    "paneer": "paneer tikka pizza",
+    "manchurian": "veg manchurian",
+    "noodles": "hakka noodles",
+    "chowmein": "hakka noodles",
+    "spring roll": "veg spring roll",
+    "rolls": "veg spring roll",
+}
+
+
+def _expand_generic(item_text: str) -> str:
+    """If the item text is a generic food word, expand it to the default menu item."""
+    key = item_text.lower().strip()
+    return _GENERIC_ALIASES.get(key, item_text)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -238,6 +288,7 @@ def parse_voice_text(
         item_text = _clean_item_text(raw_item_text)
         if not item_text:
             continue
+        item_text = _expand_generic(item_text)  # "pizzas" → "margherita pizza"
 
         if include_confidence:
             matched, score = best_match_with_score(item_text, items)

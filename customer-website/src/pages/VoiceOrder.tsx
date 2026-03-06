@@ -222,6 +222,7 @@ export default function VoiceOrderPage() {
   const navigate = useNavigate();
   const [text, setText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [isListening, setIsListening] = useState(false); // continuous listening mode
   const [cartItems, setCartItems] = useState<VoiceOrderItem[]>([]);
   const [primaryItemId, setPrimaryItemId] = useState<number | null>(null);
   const [suggestions, setSuggestions] = useState<VoiceUpsellSuggestion[]>([]);
@@ -235,68 +236,142 @@ export default function VoiceOrderPage() {
   const [sessionId] = useState(() => crypto.randomUUID());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isListeningRef = useRef(false);  // non-stale ref for callbacks
+  const cartRef = useRef(cartItems);     // non-stale ref for cart in callbacks
+  cartRef.current = cartItems;
 
+  const SILENCE_THRESHOLD = 8;    // volume level below which = silence (0-255), lower = less sensitive
+  const SILENCE_DURATION = 2500;  // ms of silence before auto-processing (2.5s gives time between items)
+
+  /** Process recorded audio: STT → translate → backend → TTS */
+  const processAudio = useCallback(async (webmBlob: Blob) => {
+    setLoading(true);
+    try {
+      const wavBlob = await toWavBlob(webmBlob);
+      const transcript = await sarvamSTT(wavBlob);
+      if (transcript.trim()) {
+        setText(transcript);
+        const result = await processOrderText(transcript, cartRef.current, sessionId);
+        if (result.items.length > 0) {
+          setCartItems((prev) => {
+            const updated = [...prev];
+            for (const ni of result.items) {
+              const existing = updated.find((e) => e.item_id === ni.item_id);
+              if (existing) {
+                existing.quantity += ni.quantity;
+                existing.line_total = existing.unit_price * existing.quantity;
+              } else {
+                updated.push(ni);
+              }
+            }
+            return updated;
+          });
+          setPrimaryItemId(result.items[0].item_id);
+          const upsells = (result.upsells ?? []).filter((u) => u.recommended_addon);
+          setSuggestions(upsells);
+          setCurrentSuggIdx(0);
+          setTotalSaved(0);
+          setSuggestionsFinished(false);
+        }
+        sarvamTTS(result.message);
+      }
+    } catch (err) {
+      console.error('Voice processing error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId]);
+
+  /** Start a new recording segment (reuses the existing mic stream) */
+  const startSegment = useCallback((stream: MediaStream) => {
+    const mediaRecorder = new MediaRecorder(stream);
+    mediaRecorderRef.current = mediaRecorder;
+    chunksRef.current = [];
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    mediaRecorder.onstop = async () => {
+      if (chunksRef.current.length === 0) return;
+      const blob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
+      await processAudio(blob);
+      // Auto-restart if still in listening mode
+      if (isListeningRef.current && stream.active) {
+        startSegment(stream);
+      }
+    };
+    mediaRecorder.start();
+    setIsRecording(true);
+
+    // Set up silence detection using Web Audio API
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    let speaking = false;
+
+    const checkSilence = () => {
+      if (!isListeningRef.current) return;
+      analyser.getByteFrequencyData(dataArray);
+      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+
+      if (avg > SILENCE_THRESHOLD) {
+        // User is speaking
+        speaking = true;
+        if (silenceTimerRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
+      } else if (speaking && !silenceTimerRef.current) {
+        // Silence detected after speech — wait SILENCE_DURATION then auto-stop segment
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+          speaking = false;
+          if (mediaRecorderRef.current?.state === 'recording') {
+            mediaRecorderRef.current.stop();
+            setIsRecording(false);
+          }
+        }, SILENCE_DURATION);
+      }
+      requestAnimationFrame(checkSilence);
+    };
+    requestAnimationFrame(checkSilence);
+  }, [processAudio]);
+
+  /** Toggle continuous listening mode on/off */
   const handleMicToggle = useCallback(async () => {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
+    if (isListening) {
+      // Stop everything
+      isListeningRef.current = false;
+      setIsListening(false);
       setIsRecording(false);
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      if (mediaRecorderRef.current?.state === 'recording') {
+        mediaRecorderRef.current.stop();
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
       return;
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      chunksRef.current = [];
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      mediaRecorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        if (chunksRef.current.length === 0) return;
-        const webmBlob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
-        setLoading(true);
-        try {
-          const wavBlob = await toWavBlob(webmBlob);
-          const transcript = await sarvamSTT(wavBlob);
-          if (transcript.trim()) {
-            setText(transcript);
-            // Process through translate → n8n → backend flow
-            const result = await processOrderText(transcript, cartItems, sessionId);
-            if (result.items.length > 0) {
-              setCartItems((prev) => {
-                const updated = [...prev];
-                for (const ni of result.items) {
-                  const existing = updated.find((e) => e.item_id === ni.item_id);
-                  if (existing) {
-                    existing.quantity += ni.quantity;
-                    existing.line_total = existing.unit_price * existing.quantity;
-                  } else {
-                    updated.push(ni);
-                  }
-                }
-                return updated;
-              });
-              setPrimaryItemId(result.items[0].item_id);
-              const upsells = (result.upsells ?? []).filter((u) => u.recommended_addon);
-              setSuggestions(upsells);
-              setCurrentSuggIdx(0);
-              setTotalSaved(0);
-              setSuggestionsFinished(false);
-            }
-            sarvamTTS(result.message);
-          }
-        } catch (err) {
-          console.error('Voice processing error:', err);
-        } finally {
-          setLoading(false);
-        }
-      };
-      mediaRecorder.start();
-      setIsRecording(true);
+      streamRef.current = stream;
+      isListeningRef.current = true;
+      setIsListening(true);
+      startSegment(stream);
     } catch {
       // Microphone not available
     }
-  }, [isRecording, cartItems, sessionId]);
+  }, [isListening, startSegment]);
 
   const handleParse = async () => {
     if (!text.trim()) return;
@@ -453,27 +528,27 @@ export default function VoiceOrderPage() {
             <button
               onClick={handleMicToggle}
               className={`flex h-14 w-14 items-center justify-center rounded-2xl transition-all ${
-                isRecording
+                isListening
                   ? 'bg-red-500 text-white animate-pulse'
                   : 'bg-gray-100 text-zomato-gray hover:bg-gray-200'
               }`}
             >
-              {isRecording ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+              {isListening ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
             </button>
             <div className="flex-1">
               <p className="text-sm font-medium text-zomato-dark">
-                {loading ? 'Processing voice...' : isRecording ? 'Listening...' : 'Tap to speak'}
+                {loading ? 'Processing voice...' : isListening && isRecording ? 'Listening...' : isListening ? 'Waiting for you to speak...' : 'Tap to start voice ordering'}
               </p>
               <p className="text-xs text-zomato-gray">
-                {loading ? 'Converting speech to order' : isRecording ? 'Tap again to stop' : 'Or type your order below'}
+                {loading ? 'Converting speech to order' : isListening ? 'Say items one by one — auto-detects when you pause. Tap mic to stop.' : 'Tap mic once — keep speaking naturally'}
               </p>
             </div>
-            {isRecording && (
+            {isListening && (
               <div className="flex gap-1">
                 {[1, 2, 3, 4, 5].map((i) => (
                   <div
                     key={i}
-                    className="w-1 rounded-full bg-red-500"
+                    className={`w-1 rounded-full ${isRecording ? 'bg-red-500' : 'bg-orange-400'}`}
                     style={{
                       animation: `waveform 0.8s ease-in-out ${i * 0.1}s infinite`,
                       height: '4px',
