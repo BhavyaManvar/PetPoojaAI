@@ -1,19 +1,6 @@
-"""Generate the hybrid Excel dataset for PetPooja AI Revenue Copilot.
+"""Menu data and recommendation engine for PetPooja AI Revenue Copilot."""
 
-Produces 5 sheets: Menu_Items, Orders, Order_Items, Sales_Analytics, Voice_Orders
-Includes a recommendation / upsell engine based on category compatibility.
-
-Run:  python data/generate_dataset.py
-"""
-
-import json
 import random
-from datetime import datetime, timedelta
-from pathlib import Path
-
-import pandas as pd
-
-random.seed(42)
 
 # ── Category Compatibility for Recommendations ─────────────────────────────────
 # Maps a source category to compatible upsell target categories.
@@ -28,17 +15,12 @@ COMPATIBILITY = {
     "Italian": ["Beverages", "Desserts", "Sides"],
 }
 
-# Scoring weights for recommendation ranking
-WEIGHT_PROFIT = 0.50
-WEIGHT_LOW_SALES = 0.35
-WEIGHT_AFFORDABILITY = 0.15
+# Scoring weights — high profit + low sales
+WEIGHT_PROFIT = 0.60
+WEIGHT_LOW_SALES = 0.40
 
-# Anti-repeat penalty applied to recently recommended items
-REPEAT_PENALTY = 0.60
-
-# Price compatibility range: candidate price between 25%-80% of selected item price
-PRICE_FIT_LOW = 0.25
-PRICE_FIT_HIGH = 0.80
+# Anti-repeat penalty for previously suggested items
+REPEAT_PENALTY = 0.50
 
 # ── Menu Items ──────────────────────────────────────────────────────────────────
 # (id, name, category, price, cost, profit, sales, available)
@@ -256,33 +238,16 @@ def get_compatible_categories(selected_category: str) -> list[str]:
 
 
 def filter_candidate_items(selected_item: tuple, items: list[tuple]) -> list[tuple]:
-    """Return available items from compatible categories, excluding the selected item.
-
-    Prefers candidates whose price sits within 25-80% of the selected item price.
-    Falls back to all compatible candidates if the price range yields nothing.
-    """
-    selected_category = selected_item[2]
-    compatible = get_compatible_categories(selected_category)
+    """Return available items from compatible categories, excluding the selected item."""
+    compatible = get_compatible_categories(selected_item[2])
     if not compatible:
         return []
-
-    all_compatible = [
+    return [
         item for item in items
         if item[2] in compatible
-        and item[2] != selected_category
         and item[7]  # available
         and item[0] != selected_item[0]
     ]
-    if not all_compatible:
-        return []
-
-    # Price-fit filter: candidate price between 25%-80% of selected price
-    sel_price = selected_item[3]
-    price_lo = sel_price * PRICE_FIT_LOW
-    price_hi = sel_price * PRICE_FIT_HIGH
-    price_fit = [c for c in all_compatible if price_lo <= c[3] <= price_hi]
-
-    return price_fit if price_fit else all_compatible
 
 
 def normalize_scores(values: list[float]) -> list[float]:
@@ -301,90 +266,31 @@ def _batch_score_candidates(
     candidates: list[tuple],
     history: dict[int, list[int]] | None = None,
 ) -> list[tuple[tuple, float]]:
-    """Score all candidates in one pass with pre-computed normalization.
-
-    Factors per candidate:
-      - profit  (higher is better)         — weight 0.50
-      - sales   (lower  is better)         — weight 0.35
-      - affordability (price closeness)     — weight 0.15
-      - graduated recency penalty (recent recs penalised more)
-      - category diversity bonus (favour under-represented categories)
-    """
+    """Score candidates by high profit (index 5) + low sales (index 6)."""
     if not candidates:
         return []
 
-    # Normalize once for all candidates
     norm_profits = normalize_scores([c[5] for c in candidates])
     norm_sales = normalize_scores([c[6] for c in candidates])
 
-    selected_price = selected_item[3]
-    max_price_diff = max(abs(c[3] - selected_price) for c in candidates) or 1
-
-    # Build recency map: position in history → penalty weight
-    # Most recent (last entry) gets heaviest penalty
-    recency_map: dict[int, float] = {}
-    if history:
-        recent = history.get(selected_item[0], [])
-        for pos, item_id in enumerate(recent):
-            # older entries get lighter penalty, newest gets full penalty
-            recency_map[item_id] = REPEAT_PENALTY * ((pos + 1) / len(recent))
-
-    # Count how many times each category already appeared in recent history
-    # to give a small diversity bonus to under-represented categories
-    recent_cats: dict[str, int] = {}
-    if history:
-        recent_ids = history.get(selected_item[0], [])
-        item_map = {i[0]: i for i in candidates}
-        for rid in recent_ids:
-            if rid in item_map:
-                cat = item_map[rid][2]
-                recent_cats[cat] = recent_cats.get(cat, 0) + 1
-
+    recent: list[int] = history.get(selected_item[0], []) if history else []
     scored: list[tuple[tuple, float]] = []
     for idx, candidate in enumerate(candidates):
-        profit_score = norm_profits[idx]
-        low_sales_score = 1.0 - norm_sales[idx]
-        affordability_score = 1.0 - (abs(candidate[3] - selected_price) / max_price_diff)
-
-        base_score = (
-            WEIGHT_PROFIT * profit_score
-            + WEIGHT_LOW_SALES * low_sales_score
-            + WEIGHT_AFFORDABILITY * affordability_score
+        score = (
+            WEIGHT_PROFIT * norm_profits[idx]
+            + WEIGHT_LOW_SALES * (1.0 - norm_sales[idx])
         )
-
-        # Graduated recency penalty
-        penalty = recency_map.get(candidate[0], 0.0)
-        if penalty:
-            base_score *= (1.0 - penalty)
-
-        # Category diversity bonus: boost categories not recently recommended
-        cat_count = recent_cats.get(candidate[2], 0)
-        if cat_count == 0 and recent_cats:
-            base_score *= 1.08  # small 8% boost for fresh categories
-
-        scored.append((candidate, base_score))
+        if candidate[0] in recent:
+            score *= (1.0 - REPEAT_PENALTY)
+        scored.append((candidate, score))
 
     scored.sort(key=lambda x: x[1], reverse=True)
     return scored
 
 
-def score_candidate(
-    selected_item: tuple,
-    candidate: tuple,
-    all_candidates: list[tuple],
-    history: dict[int, list[int]] | None = None,
-) -> float:
-    """Score a single candidate (convenience wrapper around batch scoring)."""
-    results = _batch_score_candidates(selected_item, all_candidates, history)
-    for c, s in results:
-        if c[0] == candidate[0]:
-            return s
-    return 0.0
-
-
 def weighted_pick_top_candidates(
     scored_candidates: list[tuple[tuple, float]],
-    top_k: int = 5,
+    top_k: int = 3,
 ) -> tuple[tuple, float]:
     """Pick one item from the top-k candidates using weighted random selection."""
     pool = scored_candidates[:min(top_k, len(scored_candidates))]
@@ -433,8 +339,8 @@ def get_recommendation(
     # Score all candidates in one batch (history-aware, normalized once)
     scored = _batch_score_candidates(selected_item, candidates, history)
 
-    # Weighted random pick from top 5
-    chosen, chosen_score = weighted_pick_top_candidates(scored, top_k=5)
+    # Weighted random pick from top 3
+    chosen, chosen_score = weighted_pick_top_candidates(scored, top_k=3)
 
     # Record in per-item history
     update_history(history, selected_item[0], chosen[0])
@@ -501,244 +407,3 @@ def format_recommendation_message(selected_item: tuple, recommended_item: tuple)
     )
 
 
-# ── Dataset Generation (Orders, Voice, Excel) ──────────────────────────────────
-
-def generate_dataset():
-    """Generate the full Excel dataset. Only runs when called explicitly."""
-    CITIES = ["Ahmedabad", "Mumbai", "Delhi", "Bangalore", "Pune", "Jaipur", "Hyderabad", "Chennai"]
-    OUTLETS = {c: list(range(i * 2 + 1, i * 2 + 3)) for i, c in enumerate(CITIES)}
-    PAYMENT_MODES = ["UPI", "Cash", "Card", "Wallet"]
-    ORDER_TYPES = ["Dine-in", "Takeaway", "Delivery"]
-
-    MENU_COLUMNS = ["item_id", "item_name", "category", "price", "cost", "profit", "sales", "is_available"]
-    menu_df = pd.DataFrame(ITEMS, columns=MENU_COLUMNS)
-
-    NUM_ORDERS = 1000
-    BASE_DATE = datetime(2025, 1, 1)
-
-    order_rows = []
-    order_item_rows = []
-    order_item_id = 1
-
-    for oid in range(1001, 1001 + NUM_ORDERS):
-        city = random.choice(CITIES)
-        outlet_id = random.choice(OUTLETS[city])
-        order_date = BASE_DATE + timedelta(
-            days=random.randint(0, 180),
-            hours=random.randint(10, 22),
-            minutes=random.randint(0, 59),
-        )
-
-        n_items = random.choices([1, 2, 3, 4], weights=[15, 40, 30, 15])[0]
-        chosen_ids: set[int] = set()
-
-        # Use compatibility mapping to create natural pairings
-        if random.random() < 0.4 and n_items >= 2:
-            main = random.choice(ITEMS)
-            compatible_cats = COMPATIBILITY.get(main[2], [])
-            if compatible_cats:
-                companions = [i for i in ITEMS if i[2] in compatible_cats and i[7]]
-                if companions:
-                    chosen_ids.add(main[0])
-                    chosen_ids.add(random.choice(companions)[0])
-
-        while len(chosen_ids) < n_items:
-            chosen_ids.add(random.choice(ITEMS)[0])
-
-        total_amount = 0.0
-        for item_id in chosen_ids:
-            itm = item_lookup[item_id]
-            qty = random.choices([1, 2, 3], weights=[60, 30, 10])[0]
-            line_total = itm[3] * qty
-            total_amount += line_total
-            order_item_rows.append({
-                "order_item_id": order_item_id,
-                "order_id": oid,
-                "item_id": item_id,
-                "item_name": itm[1],
-                "quantity": qty,
-                "unit_price": itm[3],
-                "line_total": line_total,
-            })
-            order_item_id += 1
-
-        order_rows.append({
-            "order_id": oid,
-            "customer_id": random.randint(500, 999),
-            "order_date": order_date.strftime("%Y-%m-%d %H:%M:%S"),
-            "city": city,
-            "outlet_id": outlet_id,
-            "total_amount": total_amount,
-            "payment_mode": random.choice(PAYMENT_MODES),
-            "order_type": random.choice(ORDER_TYPES),
-        })
-
-    orders_df = pd.DataFrame(order_rows)
-    order_items_df = pd.DataFrame(order_item_rows)
-
-    # ── Sales Analytics ─────────────────────────────────────────────────────────────
-    sales_agg = (
-        order_items_df
-        .groupby(["item_id", "item_name"])
-        .agg(total_qty_sold=("quantity", "sum"), total_revenue=("line_total", "sum"))
-        .reset_index()
-    )
-    sales_agg = sales_agg.merge(menu_df[["item_id", "cost", "category"]], on="item_id", how="left")
-    sales_agg["total_cost"] = sales_agg["total_qty_sold"] * sales_agg["cost"]
-    sales_agg["contribution_margin"] = sales_agg["total_revenue"] - sales_agg["total_cost"]
-    sales_agg["margin_pct"] = (sales_agg["contribution_margin"] / sales_agg["total_revenue"] * 100).round(1)
-    sales_agg["avg_daily_sales"] = (sales_agg["total_qty_sold"] / 180).round(1)
-    sales_agg = sales_agg[
-        ["item_id", "item_name", "total_qty_sold", "total_revenue", "total_cost",
-         "contribution_margin", "margin_pct", "avg_daily_sales", "category"]
-    ]
-
-    # ── Voice Orders ────────────────────────────────────────────────────────────────
-    VOICE_TEMPLATES = [
-        ("one {a}", "en", [("{a}", 1)]),
-        ("two {a}", "en", [("{a}", 2)]),
-        ("three {a}", "en", [("{a}", 3)]),
-        ("one {a} and one {b}", "en", [("{a}", 1), ("{b}", 1)]),
-        ("one {a} and two {b}", "en", [("{a}", 1), ("{b}", 2)]),
-        ("two {a} and one {b}", "en", [("{a}", 2), ("{b}", 1)]),
-        ("one {a}, one {b} and one {c}", "en", [("{a}", 1), ("{b}", 1), ("{c}", 1)]),
-        ("I want {a}", "en", [("{a}", 1)]),
-        ("can I get {a}", "en", [("{a}", 1)]),
-        ("can I get one {a} and one {b}", "en", [("{a}", 1), ("{b}", 1)]),
-        ("please give me {a}", "en", [("{a}", 1)]),
-        ("add one {a} and one {b}", "en", [("{a}", 1), ("{b}", 1)]),
-        ("ek {a}", "hi", [("{a}", 1)]),
-        ("do {a}", "hi", [("{a}", 2)]),
-        ("teen {a}", "hi", [("{a}", 3)]),
-        ("ek {a} aur ek {b}", "hi", [("{a}", 1), ("{b}", 1)]),
-        ("do {a} aur ek {b}", "hi", [("{a}", 2), ("{b}", 1)]),
-        ("ek {a}, ek {b} aur ek {c}", "hi", [("{a}", 1), ("{b}", 1), ("{c}", 1)]),
-        ("mujhe ek {a} chahiye", "hi", [("{a}", 1)]),
-        ("mujhe ek {a} aur ek {b} chahiye", "hi", [("{a}", 1), ("{b}", 1)]),
-        ("ek {a} dena", "hinglish", [("{a}", 1)]),
-        ("do {a} dena", "hinglish", [("{a}", 2)]),
-        ("ek {a} aur ek {b} dena", "hinglish", [("{a}", 1), ("{b}", 1)]),
-        ("bhai ek {a} de do", "hinglish", [("{a}", 1)]),
-        ("bhai ek {a} aur ek {b} de do", "hinglish", [("{a}", 1), ("{b}", 1)]),
-        ("mujhe ek {a}, ek {b} aur ek {c} chahiye", "hinglish", [("{a}", 1), ("{b}", 1), ("{c}", 1)]),
-    ]
-
-    voice_rows = []
-    for vid in range(1, 201):
-        template, lang, slots = random.choice(VOICE_TEMPLATES)
-        sample_items = random.sample(ITEMS, min(len(slots), len(ITEMS)))
-        raw = template
-        parsed_items = []
-        for i, (placeholder, qty) in enumerate(slots):
-            if i < len(sample_items):
-                name = sample_items[i][1]
-                raw = raw.replace(placeholder, name.lower())
-                parsed_items.append({"item": name, "qty": qty})
-        voice_rows.append({
-            "voice_id": vid,
-            "raw_text": raw,
-            "language": lang,
-            "parsed_items": json.dumps(parsed_items),
-            "is_valid": True,
-            "timestamp": (BASE_DATE + timedelta(
-                days=random.randint(0, 180), hours=random.randint(10, 22)
-            )).strftime("%Y-%m-%d %H:%M:%S"),
-        })
-
-    voice_df = pd.DataFrame(voice_rows)
-
-    # ── Write Excel ─────────────────────────────────────────────────────────────────
-    out = Path(__file__).resolve().parent / "restaurant_ai_hybrid_dataset.xlsx"
-    with pd.ExcelWriter(out, engine="openpyxl") as writer:
-        menu_df.to_excel(writer, sheet_name="Menu_Items", index=False)
-        orders_df.to_excel(writer, sheet_name="Orders", index=False)
-        order_items_df.to_excel(writer, sheet_name="Order_Items", index=False)
-        sales_agg.to_excel(writer, sheet_name="Sales_Analytics", index=False)
-        voice_df.to_excel(writer, sheet_name="Voice_Orders", index=False)
-
-    print(f"Dataset written to {out}")
-    print(f"  Menu_Items:      {len(menu_df)} rows")
-    print(f"  Orders:          {len(orders_df)} rows")
-    print(f"  Order_Items:     {len(order_items_df)} rows")
-    print(f"  Sales_Analytics: {len(sales_agg)} rows")
-    print(f"  Voice_Orders:    {len(voice_df)} rows")
-
-
-# ── Demo / Test Block ──────────────────────────────────────────────────────────
-if __name__ == "__main__":
-    generate_dataset()
-
-    # Unseed so the demo shows real variety each run
-    random.seed()
-
-    def _print_result(result: dict | None, label: str = "") -> None:
-        if result:
-            print(f"  {label}Selected : {result['selected_item']} ({result['selected_category']})")
-            print(f"  {label}Recommend: {result['recommended_item']} ({result['recommended_category']})")
-            print(f"  {label}Price: ₹{result['price']}  |  Profit: ₹{result['profit']}  |  Score: {result['score']}")
-            print(f"  {label}>> {result['message']}")
-        else:
-            print(f"  {label}No recommendation available.")
-
-    # ── 1. Margherita Pizza repeated 8 times ────────────────────────────────
-    print("\n" + "=" * 70)
-    print("ANTI-REPEAT DEMO — Margherita Pizza ordered 8 times")
-    print("=" * 70)
-
-    history: dict[int, list[int]] = {}
-    margherita = next(i for i in ITEMS if i[1] == "Margherita Pizza")
-    seen: list[str] = []
-
-    for cycle in range(1, 9):
-        result = get_recommendation(margherita, ITEMS, history=history)
-        if result:
-            name = result["recommended_item"]
-            flag = " ** REPEAT" if name in seen[-5:] else ""
-            seen.append(name)
-            print(f"  Cycle {cycle}: {name:30s} (score={result['score']})  {flag}")
-
-    print(f"\n  Per-item history for Margherita (id={margherita[0]}): {history.get(margherita[0], [])}")
-
-    # ── 2. Veg Burger repeated 8 times ──────────────────────────────────────
-    print("\n" + "=" * 70)
-    print("ANTI-REPEAT DEMO — Veg Burger ordered 8 times")
-    print("=" * 70)
-
-    history2: dict[int, list[int]] = {}
-    veg_burger = next(i for i in ITEMS if i[1] == "Veg Burger")
-    seen2: list[str] = []
-
-    for cycle in range(1, 9):
-        result = get_recommendation(veg_burger, ITEMS, history=history2)
-        if result:
-            name = result["recommended_item"]
-            cat = result["recommended_category"]
-            flag = " ** REPEAT" if name in seen2[-5:] else ""
-            seen2.append(name)
-            print(f"  Cycle {cycle}: {name:30s} [{cat:10s}] (score={result['score']})  {flag}")
-
-    print(f"\n  Per-item history for Veg Burger (id={veg_burger[0]}): {history2.get(veg_burger[0], [])}")
-
-    # ── 3. Mixed items — 5 different selections ─────────────────────────────
-    print("\n" + "=" * 70)
-    print("VARIETY DEMO — 5 different items")
-    print("=" * 70)
-
-    history3: dict[int, list[int]] = {}
-    demo_items = [i for i in ITEMS if i[2] in RECOMMENDABLE_CATEGORIES]
-    picks = random.sample(demo_items, min(5, len(demo_items)))
-
-    for item in picks:
-        print()
-        result = get_recommendation(item, ITEMS, history=history3)
-        _print_result(result)
-
-    # ── 4. Edge cases ───────────────────────────────────────────────────────
-    print("\n" + "-" * 70)
-    print("EDGE CASES")
-    print("-" * 70)
-
-    fake = (9999, "Test Item", "UnknownCategory", 100, 50, 50, 100, True)
-    print(f"  Unsupported category: {get_recommendation(fake, ITEMS)}")
-    print(f"  Empty dataset:        {get_recommendation(ITEMS[0], [])}")
-    print(f"  Malformed item:       {get_recommendation((1, 'Bad'), ITEMS)}")

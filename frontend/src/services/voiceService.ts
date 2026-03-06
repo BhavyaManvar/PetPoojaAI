@@ -17,6 +17,7 @@ export interface VoiceUpsellSuggestion {
   addon_id: number | null;
   addon_price: number | null;
   strategy: string | null;
+  recommended_category: string | null;
   reason: string;
 }
 

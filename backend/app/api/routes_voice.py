@@ -144,35 +144,27 @@ async def voice_chat(
         )
 
         upsells: list[VoiceChatUpsell] = []
-        seen_addons: set[str] = set()
         ordered_names = {i.item_name for i in chat_items}
 
         for rec in upsell_recs:
             addon = rec.get("recommended_addon")
-            if not addon or addon in seen_addons or addon in ordered_names:
+            if not addon or addon in ordered_names:
                 continue
-            seen_addons.add(addon)
-
-            addon_price = rec.get("price")
-            reason = rec.get("message") or "You might enjoy this!"
-
             upsells.append(VoiceChatUpsell(
                 item_name=rec.get("item", ""),
                 recommended_addon=addon,
                 addon_id=rec.get("addon_id"),
-                addon_price=addon_price,
-                strategy=rec.get("strategy", ""),
-                reason=reason,
+                addon_price=rec.get("price"),
+                strategy=rec.get("strategy", "smart_upsell"),
+                recommended_category=rec.get("recommended_category"),
+                reason=rec.get("message") or "You might enjoy this!",
             ))
+            break  # One suggestion at a time
 
         if upsells:
-            addon_suggestions = " | ".join(
-                f"{u.recommended_addon} (₹{u.addon_price:.0f})" if u.addon_price else u.recommended_addon or ""
-                for u in upsells[:2]
-            )
-            message += f" Would you also like {addon_suggestions}?"
+            message += f" {upsells[0].reason}"
         else:
-            message += " Anything else?"
+            message += " Anything else you'd like to add?"
     else:
         upsells = []
         message = "Sorry, I couldn't find that on the menu. Could you try again?"

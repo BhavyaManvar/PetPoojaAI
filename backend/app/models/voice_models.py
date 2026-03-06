@@ -95,6 +95,7 @@ class VoiceChatUpsell(BaseModel):
     addon_id: int | None = None
     addon_price: float | None = None
     strategy: str | None = None
+    recommended_category: str | None = None
     reason: str = ""
 
 

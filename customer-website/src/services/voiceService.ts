@@ -9,6 +9,16 @@ export interface VoiceOrderItem {
   confidence: number;
 }
 
+export interface VoiceUpsellSuggestion {
+  item_name: string;
+  recommended_addon: string | null;
+  addon_id: number | null;
+  addon_price: number | null;
+  strategy: string | null;
+  recommended_category: string | null;
+  reason: string;
+}
+
 interface BackendChatItem {
   item_id: number;
   item_name: string;
@@ -21,17 +31,20 @@ interface BackendChatItem {
 interface BackendChatResponse {
   intent: string;
   items: BackendChatItem[];
+  upsells?: VoiceUpsellSuggestion[];
   message: string;
   language: string;
 }
 
-export async function parseVoiceInput(transcript: string): Promise<{ items: VoiceOrderItem[] }> {
+export async function parseVoiceInput(
+  transcript: string,
+): Promise<{ items: VoiceOrderItem[]; upsells: VoiceUpsellSuggestion[] }> {
   const res = await fetch(API.voiceChat, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: transcript }),
   });
-  if (!res.ok) return { items: [] };
+  if (!res.ok) return { items: [], upsells: [] };
 
   const data: BackendChatResponse = await res.json();
   const items: VoiceOrderItem[] = data.items.map((i) => ({
@@ -42,7 +55,7 @@ export async function parseVoiceInput(transcript: string): Promise<{ items: Voic
     line_total: i.line_total,
     confidence: i.confidence,
   }));
-  return { items };
+  return { items, upsells: data.upsells ?? [] };
 }
 
 export async function placeOrderViaBackend(

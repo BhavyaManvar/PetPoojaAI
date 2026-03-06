@@ -9,6 +9,7 @@ export const API = {
   orderList: (limit = 20) => `${API_BASE}/order/list?limit=${limit}`,
   authVerify: `${API_BASE}/auth/verify`,
   voiceChat: `${API_BASE}/voice/chat`,
+  upsellForItem: (id: number) => `${API_BASE}/combos/upsell/for-item?item_id=${id}`,
 } as const;
 
 export async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {

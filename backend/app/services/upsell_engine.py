@@ -36,10 +36,7 @@ from generate_dataset import (  # noqa: E402
     format_recommendation_message,
     WEIGHT_PROFIT,
     WEIGHT_LOW_SALES,
-    WEIGHT_AFFORDABILITY,
     REPEAT_PENALTY,
-    PRICE_FIT_LOW,
-    PRICE_FIT_HIGH,
 )
 
 # ── Per-session in-memory history (resets on server restart) ────────────────────
@@ -100,8 +97,8 @@ def recommend_addon(
     # Score all candidates with anti-repeat history
     scored = _batch_score_candidates(selected, candidates, _recommendation_history)
 
-    # Weighted random pick from top 5
-    chosen_tuple, chosen_score = weighted_pick_top_candidates(scored, top_k=5)
+    # Weighted random pick from top 3
+    chosen_tuple, chosen_score = weighted_pick_top_candidates(scored, top_k=3)
 
     # Record in history (auto-evicts after 5 cycles)
     update_history(_recommendation_history, selected[0], chosen_tuple[0])
