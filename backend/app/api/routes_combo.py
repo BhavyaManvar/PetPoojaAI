@@ -12,7 +12,7 @@ from app.models.combo_models import (
     UpsellBatchResponse,
 )
 from app.services.combo_engine import get_top_combos, get_basket_stats, get_combos_by_category
-from app.services.upsell_engine import recommend_addon, recommend_addons_batch
+from app.services.upsell_engine import recommend_addon, recommend_addons_batch, clear_history
 
 router = APIRouter()
 
@@ -71,3 +71,12 @@ async def upsell_batch(
         body.item_ids, dfs["menu"], dfs["order_items"], dfs.get("sales_analytics"),
     )
     return {"results": results}
+
+
+@router.post("/upsell/clear-history")
+async def upsell_clear_history(
+    item_id: int | None = Query(None, description="Clear history for a specific item, or all if omitted"),
+):
+    """Clear recommendation history (call when an order is placed)."""
+    clear_history(item_id)
+    return {"status": "ok"}

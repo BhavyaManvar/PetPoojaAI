@@ -22,7 +22,7 @@ from app.services.voice_parser import (
     detect_intent,
 )
 from app.services.order_service import resolve_items, build_pos_payload
-from app.services.upsell_engine import recommend_addons_batch
+from app.services.upsell_engine import recommend_addons_batch, clear_history
 
 router = APIRouter()
 
@@ -94,6 +94,7 @@ async def voice_chat(
     language = detect_language(payload.text)
 
     if intent == "CONFIRM_ORDER":
+        clear_history()  # Reset recommendation history for fresh suggestions on next order
         return VoiceChatResponse(
             intent=intent,
             items=[],
@@ -152,24 +153,16 @@ async def voice_chat(
                 continue
             seen_addons.add(addon)
 
-            # Look up addon price
-            addon_row = menu_df.loc[menu_df["item_name"] == addon]
-            addon_price = float(addon_row.iloc[0]["price"]) if not addon_row.empty else None
+            addon_price = rec.get("price")
+            reason = rec.get("message") or "You might enjoy this!"
 
-            strategy = rec.get("strategy", "")
-            reason_map = {
-                "cross_category_combo": f"Frequently ordered with {rec.get('item', 'your items')}",
-                "same_category_combo": f"Popular combo with {rec.get('item', 'your items')}",
-                "hidden_star_promotion": "Chef's recommendation — great value!",
-                "popular_addon": "Our most popular add-on",
-            }
             upsells.append(VoiceChatUpsell(
                 item_name=rec.get("item", ""),
                 recommended_addon=addon,
                 addon_id=rec.get("addon_id"),
                 addon_price=addon_price,
-                strategy=strategy,
-                reason=reason_map.get(strategy, "You might enjoy this!"),
+                strategy=rec.get("strategy", ""),
+                reason=reason,
             ))
 
         if upsells:

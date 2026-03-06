@@ -52,6 +52,13 @@ export async function fetchUpsellBatch(itemIds: number[]): Promise<UpsellResult[
   return data.results;
 }
 
+export async function clearUpsellHistory(itemId?: number): Promise<void> {
+  const url = itemId != null
+    ? `${ENDPOINTS.upsellClearHistory}?item_id=${itemId}`
+    : ENDPOINTS.upsellClearHistory;
+  await fetchJSON<{ status: string }>(url, { method: "POST" });
+}
+
 // ── Voice Copilot ───────────────────────────────────────────────────────────────
 export function parseVoice(text: string): Promise<VoiceParseResponse> {
   return fetchJSON<VoiceParseResponse>(ENDPOINTS.voiceParse, {
