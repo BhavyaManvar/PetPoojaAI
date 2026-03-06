@@ -8,7 +8,6 @@ Run:  python data/generate_dataset.py
 
 import json
 import random
-from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -31,8 +30,15 @@ COMPATIBILITY = {
 
 # Scoring weights for recommendation ranking
 WEIGHT_PROFIT = 0.50
-WEIGHT_LOW_SALES = 0.30
-WEIGHT_AFFORDABILITY = 0.20
+WEIGHT_LOW_SALES = 0.35
+WEIGHT_AFFORDABILITY = 0.15
+
+# Anti-repeat penalty applied to recently recommended items
+REPEAT_PENALTY = 0.60
+
+# Price compatibility range: candidate price between 25%-80% of selected item price
+PRICE_FIT_LOW = 0.25
+PRICE_FIT_HIGH = 0.80
 
 # ── Menu Items ──────────────────────────────────────────────────────────────────
 # (id, name, category, price, cost, profit, sales, available)
@@ -250,21 +256,36 @@ def get_compatible_categories(selected_category: str) -> list[str]:
 
 
 def filter_candidate_items(selected_item: tuple, items: list[tuple]) -> list[tuple]:
-    """Return available items from compatible categories, excluding the selected item."""
+    """Return available items from compatible categories, excluding the selected item.
+
+    Prefers candidates whose price sits within 25-80% of the selected item price.
+    Falls back to all compatible candidates if the price range yields nothing.
+    """
     selected_category = selected_item[2]
     compatible = get_compatible_categories(selected_category)
     if not compatible:
         return []
-    return [
+
+    all_compatible = [
         item for item in items
         if item[2] in compatible
         and item[2] != selected_category
         and item[7]  # available
         and item[0] != selected_item[0]
     ]
+    if not all_compatible:
+        return []
+
+    # Price-fit filter: candidate price between 25%-80% of selected price
+    sel_price = selected_item[3]
+    price_lo = sel_price * PRICE_FIT_LOW
+    price_hi = sel_price * PRICE_FIT_HIGH
+    price_fit = [c for c in all_compatible if price_lo <= c[3] <= price_hi]
+
+    return price_fit if price_fit else all_compatible
 
 
-def _normalize(values: list[float]) -> list[float]:
+def normalize_scores(values: list[float]) -> list[float]:
     """Min-max normalize values to [0, 1]. Returns 0.5 for constant lists."""
     if not values:
         return []
@@ -275,53 +296,129 @@ def _normalize(values: list[float]) -> list[float]:
     return [(v - min_v) / (max_v - min_v) for v in values]
 
 
-def score_candidate(selected_item: tuple, candidate: tuple, all_candidates: list[tuple]) -> float:
-    """Compute a weighted score for a candidate item relative to all candidates.
+def _batch_score_candidates(
+    selected_item: tuple,
+    candidates: list[tuple],
+    history: dict[int, list[int]] | None = None,
+) -> list[tuple[tuple, float]]:
+    """Score all candidates in one pass with pre-computed normalization.
 
-    Factors:
-      - profit (higher is better)
-      - sales (lower is better — promote under-sold items)
-      - affordability (closer price to selected item is better)
+    Factors per candidate:
+      - profit  (higher is better)         — weight 0.50
+      - sales   (lower  is better)         — weight 0.35
+      - affordability (price closeness)     — weight 0.15
+      - graduated recency penalty (recent recs penalised more)
+      - category diversity bonus (favour under-represented categories)
     """
-    profits = [c[5] for c in all_candidates]
-    sales = [c[6] for c in all_candidates]
+    if not candidates:
+        return []
 
-    norm_profits = _normalize(profits)
-    norm_sales = _normalize(sales)
+    # Normalize once for all candidates
+    norm_profits = normalize_scores([c[5] for c in candidates])
+    norm_sales = normalize_scores([c[6] for c in candidates])
 
-    idx = all_candidates.index(candidate)
-
-    profit_score = norm_profits[idx]
-    low_sales_score = 1.0 - norm_sales[idx]
-
-    # Affordability: how close is candidate price to selected price
     selected_price = selected_item[3]
-    max_price_diff = max(abs(c[3] - selected_price) for c in all_candidates) or 1
-    affordability_score = 1.0 - (abs(candidate[3] - selected_price) / max_price_diff)
+    max_price_diff = max(abs(c[3] - selected_price) for c in candidates) or 1
 
-    return (
-        WEIGHT_PROFIT * profit_score
-        + WEIGHT_LOW_SALES * low_sales_score
-        + WEIGHT_AFFORDABILITY * affordability_score
-    )
+    # Build recency map: position in history → penalty weight
+    # Most recent (last entry) gets heaviest penalty
+    recency_map: dict[int, float] = {}
+    if history:
+        recent = history.get(selected_item[0], [])
+        for pos, item_id in enumerate(recent):
+            # older entries get lighter penalty, newest gets full penalty
+            recency_map[item_id] = REPEAT_PENALTY * ((pos + 1) / len(recent))
+
+    # Count how many times each category already appeared in recent history
+    # to give a small diversity bonus to under-represented categories
+    recent_cats: dict[str, int] = {}
+    if history:
+        recent_ids = history.get(selected_item[0], [])
+        item_map = {i[0]: i for i in candidates}
+        for rid in recent_ids:
+            if rid in item_map:
+                cat = item_map[rid][2]
+                recent_cats[cat] = recent_cats.get(cat, 0) + 1
+
+    scored: list[tuple[tuple, float]] = []
+    for idx, candidate in enumerate(candidates):
+        profit_score = norm_profits[idx]
+        low_sales_score = 1.0 - norm_sales[idx]
+        affordability_score = 1.0 - (abs(candidate[3] - selected_price) / max_price_diff)
+
+        base_score = (
+            WEIGHT_PROFIT * profit_score
+            + WEIGHT_LOW_SALES * low_sales_score
+            + WEIGHT_AFFORDABILITY * affordability_score
+        )
+
+        # Graduated recency penalty
+        penalty = recency_map.get(candidate[0], 0.0)
+        if penalty:
+            base_score *= (1.0 - penalty)
+
+        # Category diversity bonus: boost categories not recently recommended
+        cat_count = recent_cats.get(candidate[2], 0)
+        if cat_count == 0 and recent_cats:
+            base_score *= 1.08  # small 8% boost for fresh categories
+
+        scored.append((candidate, base_score))
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored
 
 
-# Cooldown: tracks recently recommended item IDs to avoid repetition
-_recommendation_history: deque = deque(maxlen=5)
+def score_candidate(
+    selected_item: tuple,
+    candidate: tuple,
+    all_candidates: list[tuple],
+    history: dict[int, list[int]] | None = None,
+) -> float:
+    """Score a single candidate (convenience wrapper around batch scoring)."""
+    results = _batch_score_candidates(selected_item, all_candidates, history)
+    for c, s in results:
+        if c[0] == candidate[0]:
+            return s
+    return 0.0
+
+
+def weighted_pick_top_candidates(
+    scored_candidates: list[tuple[tuple, float]],
+    top_k: int = 5,
+) -> tuple[tuple, float]:
+    """Pick one item from the top-k candidates using weighted random selection."""
+    pool = scored_candidates[:min(top_k, len(scored_candidates))]
+    weights = [max(s, 0.01) for _, s in pool]
+    return random.choices(pool, weights=weights, k=1)[0]
+
+
+def update_history(
+    history: dict[int, list[int]],
+    selected_id: int,
+    recommended_id: int,
+    max_history: int = 5,
+) -> None:
+    """Record a recommendation and evict entries older than max_history cycles."""
+    rec_list = history.setdefault(selected_id, [])
+    rec_list.append(recommended_id)
+    # Keep only the last `max_history` entries
+    if len(rec_list) > max_history:
+        history[selected_id] = rec_list[-max_history:]
 
 
 def get_recommendation(
     selected_item: tuple,
     items: list[tuple],
-    history: deque | None = None,
+    history: dict[int, list[int]] | None = None,
 ) -> dict | None:
     """Get a single upsell recommendation for a selected item.
 
     Returns a structured dict or None if no recommendation is possible.
-    Uses weighted random selection among top candidates with cooldown.
+    Uses per-item history, weighted scoring with anti-repeat penalty,
+    and top-3 weighted random selection for variety.
     """
     if history is None:
-        history = _recommendation_history
+        history = {}
 
     # Validate input
     if not selected_item or len(selected_item) < 8:
@@ -333,25 +430,14 @@ def get_recommendation(
     if not candidates:
         return None
 
-    # Score all candidates
-    scored = [(c, score_candidate(selected_item, c, candidates)) for c in candidates]
-    scored.sort(key=lambda x: x[1], reverse=True)
+    # Score all candidates in one batch (history-aware, normalized once)
+    scored = _batch_score_candidates(selected_item, candidates, history)
 
-    # Pick from top 10 candidates, applying cooldown
-    top_n = scored[:min(10, len(scored))]
-    available = [(c, s) for c, s in top_n if c[0] not in history]
+    # Weighted random pick from top 5
+    chosen, chosen_score = weighted_pick_top_candidates(scored, top_k=5)
 
-    # If all top candidates are cooling down, fall back to full top list
-    if not available:
-        available = top_n
-
-    # Weighted random pick
-    chosen, chosen_score = random.choices(
-        available, weights=[s for _, s in available], k=1
-    )[0]
-
-    # Record in cooldown history
-    history.append(chosen[0])
+    # Record in per-item history
+    update_history(history, selected_item[0], chosen[0])
 
     return {
         "selected_item": selected_item[1],
@@ -578,59 +664,77 @@ print(f"  Voice_Orders:    {len(voice_df)} rows")
 
 # ── Demo / Test Block ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    # Unseed so the demo shows real variety each run
+    random.seed()
+
+    def _print_result(result: dict | None, label: str = "") -> None:
+        if result:
+            print(f"  {label}Selected : {result['selected_item']} ({result['selected_category']})")
+            print(f"  {label}Recommend: {result['recommended_item']} ({result['recommended_category']})")
+            print(f"  {label}Price: ₹{result['price']}  |  Profit: ₹{result['profit']}  |  Score: {result['score']}")
+            print(f"  {label}>> {result['message']}")
+        else:
+            print(f"  {label}No recommendation available.")
+
+    # ── 1. Margherita Pizza repeated 8 times ────────────────────────────────
     print("\n" + "=" * 70)
-    print("RECOMMENDATION ENGINE DEMO")
+    print("ANTI-REPEAT DEMO — Margherita Pizza ordered 8 times")
     print("=" * 70)
 
-    # Use a separate history for the demo so it doesn't pollute the global one
-    demo_history: deque = deque(maxlen=5)
-
-    # Pick sample items from recommendable categories
-    demo_items = [i for i in ITEMS if i[2] in RECOMMENDABLE_CATEGORIES]
-    sample_picks = random.sample(demo_items, min(5, len(demo_items)))
-
-    for item in sample_picks:
-        result = get_recommendation(item, ITEMS, history=demo_history)
-        if result:
-            print(f"\nSelected : {result['selected_item']} ({result['selected_category']})")
-            print(f"Recommend: {result['recommended_item']} ({result['recommended_category']})")
-            print(f"Price: ₹{result['price']}  |  Profit: ₹{result['profit']}  |  Score: {result['score']}")
-            print(f">> {result['message']}")
-        else:
-            print(f"\nSelected : {item[1]} ({item[2]}) — no recommendation available.")
-
-    # Demonstrate cooldown: request recommendations for the same item repeatedly
-    print("\n" + "-" * 70)
-    print("COOLDOWN DEMO — same item requested 8 times")
-    print("-" * 70)
-
-    cooldown_history: deque = deque(maxlen=5)
-    test_item = next(i for i in ITEMS if i[2] == "Pizza")
-    seen_recs: list[str] = []
+    history: dict[int, list[int]] = {}
+    margherita = next(i for i in ITEMS if i[1] == "Margherita Pizza")
+    seen: list[str] = []
 
     for cycle in range(1, 9):
-        result = get_recommendation(test_item, ITEMS, history=cooldown_history)
+        result = get_recommendation(margherita, ITEMS, history=history)
         if result:
-            rec_name = result["recommended_item"]
-            repeat_flag = " (repeat)" if rec_name in seen_recs[-5:] else ""
-            seen_recs.append(rec_name)
-            print(f"  Cycle {cycle}: {rec_name}{repeat_flag}")
+            name = result["recommended_item"]
+            flag = " ** REPEAT" if name in seen[-5:] else ""
+            seen.append(name)
+            print(f"  Cycle {cycle}: {name:30s} (score={result['score']})  {flag}")
 
-    print(f"\n  History buffer: {list(cooldown_history)}")
-    print("  (Items in buffer are deprioritised for the next recommendation)")
+    print(f"\n  Per-item history for Margherita (id={margherita[0]}): {history.get(margherita[0], [])}")
 
-    # Edge case: unsupported category
+    # ── 2. Veg Burger repeated 8 times ──────────────────────────────────────
+    print("\n" + "=" * 70)
+    print("ANTI-REPEAT DEMO — Veg Burger ordered 8 times")
+    print("=" * 70)
+
+    history2: dict[int, list[int]] = {}
+    veg_burger = next(i for i in ITEMS if i[1] == "Veg Burger")
+    seen2: list[str] = []
+
+    for cycle in range(1, 9):
+        result = get_recommendation(veg_burger, ITEMS, history=history2)
+        if result:
+            name = result["recommended_item"]
+            cat = result["recommended_category"]
+            flag = " ** REPEAT" if name in seen2[-5:] else ""
+            seen2.append(name)
+            print(f"  Cycle {cycle}: {name:30s} [{cat:10s}] (score={result['score']})  {flag}")
+
+    print(f"\n  Per-item history for Veg Burger (id={veg_burger[0]}): {history2.get(veg_burger[0], [])}")
+
+    # ── 3. Mixed items — 5 different selections ─────────────────────────────
+    print("\n" + "=" * 70)
+    print("VARIETY DEMO — 5 different items")
+    print("=" * 70)
+
+    history3: dict[int, list[int]] = {}
+    demo_items = [i for i in ITEMS if i[2] in RECOMMENDABLE_CATEGORIES]
+    picks = random.sample(demo_items, min(5, len(demo_items)))
+
+    for item in picks:
+        print()
+        result = get_recommendation(item, ITEMS, history=history3)
+        _print_result(result)
+
+    # ── 4. Edge cases ───────────────────────────────────────────────────────
     print("\n" + "-" * 70)
-    print("EDGE CASE — category not in COMPATIBILITY")
+    print("EDGE CASES")
     print("-" * 70)
-    fake_item = (9999, "Test Item", "UnknownCategory", 100, 50, 50, 100, True)
-    result = get_recommendation(fake_item, ITEMS, history=deque(maxlen=5))
-    print(f"  Result for unsupported category: {result}")
 
-    # Edge case: empty dataset
-    result = get_recommendation(ITEMS[0], [], history=deque(maxlen=5))
-    print(f"  Result for empty dataset: {result}")
-
-    # Edge case: malformed item
-    result = get_recommendation((1, "Bad"), ITEMS, history=deque(maxlen=5))
-    print(f"  Result for malformed item: {result}")
+    fake = (9999, "Test Item", "UnknownCategory", 100, 50, 50, 100, True)
+    print(f"  Unsupported category: {get_recommendation(fake, ITEMS)}")
+    print(f"  Empty dataset:        {get_recommendation(ITEMS[0], [])}")
+    print(f"  Malformed item:       {get_recommendation((1, 'Bad'), ITEMS)}")
