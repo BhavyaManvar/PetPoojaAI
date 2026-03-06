@@ -94,6 +94,8 @@ class VoiceChatUpsell(BaseModel):
     recommended_addon: str | None = None
     addon_id: int | None = None
     addon_price: float | None = None
+    discount_percent: float = Field(5.0, description="Discount % offered on upsell")
+    discounted_price: float | None = None
     strategy: str | None = None
     recommended_category: str | None = None
     reason: str = ""

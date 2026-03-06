@@ -35,11 +35,16 @@ async function fetchUpsellForItem(itemId: number): Promise<VoiceUpsellSuggestion
     if (!res.ok) return null;
     const data = await res.json();
     if (!data.recommended_addon) return null;
+    const rawPrice = data.price ?? null;
+    const discountPct = 5;
+    const discPrice = rawPrice != null ? Math.round(rawPrice * (1 - discountPct / 100) * 100) / 100 : null;
     return {
-      item_name: data.item ?? "",
+      item_name: data.item ?? '',
       recommended_addon: data.recommended_addon,
       addon_id: data.addon_id,
-      addon_price: data.price ?? null,
+      addon_price: rawPrice,
+      discount_percent: discountPct,
+      discounted_price: discPrice,
       strategy: data.strategy ?? null,
       recommended_category: data.recommended_category ?? null,
       reason: data.message ?? `Add ${data.recommended_addon} for ₹${data.price}`,
@@ -55,7 +60,7 @@ export default function VoiceOrderPage() {
   const [cartItems, setCartItems] = useState<VoiceOrderItem[]>([]);
   // primaryItemId: the item we base suggestions on (first ordered item)
   const [primaryItemId, setPrimaryItemId] = useState<number | null>(null);
-  const [suggestion, setSuggestion] = useState<VoiceUpsellSuggestion | null>(null);
+  const [suggestions, setSuggestions] = useState<VoiceUpsellSuggestion[]>([]);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
@@ -112,17 +117,9 @@ export default function VoiceOrderPage() {
       const pid = result.items[0].item_id;
       setPrimaryItemId(pid);
 
-      // Use the suggestion already returned by /voice/chat
-      const firstUpsell = result.upsells?.[0] ?? null;
-      if (firstUpsell?.recommended_addon) {
-        setSuggestion(firstUpsell);
-      } else {
-        // Fallback: ask the combo engine directly
-        setSuggestionLoading(true);
-        const next = await fetchUpsellForItem(pid);
-        setSuggestion(next);
-        setSuggestionLoading(false);
-      }
+      // Use all suggestions returned by /voice/chat (one per compatible category)
+      const upsells = (result.upsells ?? []).filter((u) => u.recommended_addon);
+      setSuggestions(upsells);
     } catch {
       // parse error — keep whatever was in cart
     } finally {
@@ -130,44 +127,36 @@ export default function VoiceOrderPage() {
     }
   };
 
-  // User clicks "Add" on suggestion
-  const handleAddSuggestion = async () => {
-    if (!suggestion?.addon_id || !primaryItemId) return;
-    // Add suggested item to cart
+  // User clicks "Add" on a suggestion
+  const handleAddSuggestion = (index: number) => {
+    const s = suggestions[index];
+    if (!s?.addon_id) return;
+    const price = s.discounted_price ?? s.addon_price ?? 0;
     setCartItems((prev) => {
       const updated = [...prev];
-      const existing = updated.find((e) => e.item_id === suggestion.addon_id);
+      const existing = updated.find((e) => e.item_id === s.addon_id);
       if (existing) {
         existing.quantity += 1;
         existing.line_total = existing.unit_price * existing.quantity;
       } else {
         updated.push({
-          item_id: suggestion.addon_id!,
-          name: suggestion.recommended_addon!,
+          item_id: s.addon_id!,
+          name: s.recommended_addon!,
           quantity: 1,
-          unit_price: suggestion.addon_price ?? 0,
-          line_total: suggestion.addon_price ?? 0,
+          unit_price: price,
+          line_total: price,
           confidence: 100,
         });
       }
       return updated;
     });
-    // Fetch the NEXT suggestion (anti-repeat: server history ensures different item)
-    setSuggestion(null);
-    setSuggestionLoading(true);
-    const next = await fetchUpsellForItem(primaryItemId);
-    setSuggestion(next);
-    setSuggestionLoading(false);
+    // Remove this suggestion from the list
+    setSuggestions((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // User clicks "No thanks" — fetch next different suggestion
-  const handleSkipSuggestion = async () => {
-    if (!primaryItemId) return;
-    setSuggestion(null);
-    setSuggestionLoading(true);
-    const next = await fetchUpsellForItem(primaryItemId);
-    setSuggestion(next);
-    setSuggestionLoading(false);
+  // User clicks "Skip" on a suggestion
+  const handleSkipSuggestion = (index: number) => {
+    setSuggestions((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handlePlaceOrder = async () => {
@@ -202,7 +191,7 @@ export default function VoiceOrderPage() {
           onClick={() => {
             setOrderPlaced(false);
             setCartItems([]);
-            setSuggestion(null);
+            setSuggestions([]);
             setPrimaryItemId(null);
             setText("");
           }}
@@ -306,8 +295,8 @@ export default function VoiceOrderPage() {
               </div>
             </div>
 
-            {/* AI Suggestion — Combo Card */}
-            <AnimatePresence mode="wait">
+            {/* AI Suggestions — One per compatible category */}
+            <AnimatePresence mode="sync">
               {suggestionLoading ? (
                 <motion.div
                   key="loading"
@@ -317,87 +306,75 @@ export default function VoiceOrderPage() {
                   className="rounded-xl border border-dashed border-surface-border p-6 text-center"
                 >
                   <Sparkles className="h-5 w-5 text-accent mx-auto mb-2" />
-                  <p className="text-xs text-text-muted mb-3">Finding the perfect combo for you…</p>
+                  <p className="text-xs text-text-muted mb-3">Finding the perfect combos for you…</p>
                   <div className="flex justify-center gap-1.5">
                     {[0, 120, 240].map((d) => (
                       <div key={d} className="h-2 w-2 rounded-full bg-accent animate-bounce" style={{ animationDelay: `${d}ms` }} />
                     ))}
                   </div>
                 </motion.div>
-              ) : suggestion?.recommended_addon ? (() => {
-                const style = getCategoryStyle(suggestion.recommended_category);
-                return (
-                  <motion.div
-                    key={suggestion.recommended_addon}
-                    initial={{ opacity: 0, scale: 0.95, y: 12 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: -12 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                  >
-                    {/* Section header */}
-                    <div className="flex items-center gap-2 mb-3">
-                      <Sparkles className="h-4 w-4 text-accent" />
-                      <p className="text-xs font-semibold text-accent uppercase tracking-wide">Recommended for you</p>
-                    </div>
-
-                    {/* Combo product card */}
-                    <div className={`rounded-2xl border-2 ${style.border} ${style.bg} overflow-hidden transition-all hover:shadow-md`}>
-                      <div className="p-5">
-                        <div className="flex items-start gap-4">
-                          {/* Category icon circle */}
-                          <div className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl ${style.badge} text-2xl`}>
-                            {style.emoji}
-                          </div>
-
-                          {/* Item details */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              {suggestion.recommended_category && (
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${style.badge}`}>
-                                  {suggestion.recommended_category}
-                                </span>
-                              )}
-                            </div>
-                            <h4 className="text-base font-bold text-text-primary truncate">
-                              {suggestion.recommended_addon}
-                            </h4>
-                            <p className="text-xs text-text-muted mt-1 line-clamp-2 leading-relaxed">
-                              {suggestion.reason}
-                            </p>
-                          </div>
-
-                          {/* Price */}
-                          {suggestion.addon_price != null && (
-                            <div className="flex-shrink-0 text-right">
-                              <p className={`text-lg font-bold ${style.text}`}>
-                                {formatCurrency(suggestion.addon_price)}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Action buttons */}
-                      <div className="flex border-t border-inherit">
-                        <button
-                          onClick={handleSkipSuggestion}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-medium text-text-muted hover:bg-white/60 transition-colors border-r border-inherit"
+              ) : suggestions.length > 0 ? (
+                <div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles className="h-4 w-4 text-accent" />
+                    <p className="text-xs font-semibold text-accent uppercase tracking-wide">Recommended for you</p>
+                  </div>
+                  <div className="space-y-3">
+                    {suggestions.map((s, idx) => {
+                      const style = getCategoryStyle(s.recommended_category);
+                      return (
+                        <motion.div
+                          key={`${s.addon_id}-${s.recommended_category}`}
+                          initial={{ opacity: 0, scale: 0.95, y: 12 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: -12 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 25, delay: idx * 0.05 }}
                         >
-                          <X className="h-3.5 w-3.5" />
-                          Skip
-                        </button>
-                        <button
-                          onClick={handleAddSuggestion}
-                          className="flex-[2] flex items-center justify-center gap-1.5 py-3 text-sm font-bold text-white bg-btn hover:bg-btn-hover transition-colors rounded-br-2xl"
-                        >
-                          <Plus className="h-4 w-4" />
-                          Add to Order
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })() : null}
+                          <div className={`rounded-2xl border-2 ${style.border} ${style.bg} overflow-hidden transition-all hover:shadow-md`}>
+                            <div className="p-4">
+                              <div className="flex items-start gap-3">
+                                <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl ${style.badge} text-xl`}>
+                                  {style.emoji}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  {s.recommended_category && (
+                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${style.badge} mb-1`}>
+                                      {s.recommended_category}
+                                    </span>
+                                  )}
+                                  <h4 className="text-sm font-bold text-text-primary truncate">{s.recommended_addon}</h4>
+                                  <p className="text-[11px] text-text-muted mt-0.5 line-clamp-1">{s.reason}</p>
+                                </div>
+                                {s.addon_price != null && (
+                                  <div className="flex-shrink-0 text-right">
+                                    <p className="text-[11px] text-text-muted line-through">{formatCurrency(s.addon_price)}</p>
+                                    <p className={`text-base font-bold ${style.text}`}>{formatCurrency(s.discounted_price ?? s.addon_price)}</p>
+                                    <span className="inline-block mt-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-bold text-green-700">{s.discount_percent}% OFF</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex border-t border-inherit">
+                              <button
+                                onClick={() => handleSkipSuggestion(idx)}
+                                className="flex-1 flex items-center justify-center gap-1 py-2.5 text-xs font-medium text-text-muted hover:bg-white/60 transition-colors border-r border-inherit"
+                              >
+                                <X className="h-3 w-3" /> Skip
+                              </button>
+                              <button
+                                onClick={() => handleAddSuggestion(idx)}
+                                className="flex-[2] flex items-center justify-center gap-1 py-2.5 text-sm font-bold text-white bg-btn hover:bg-btn-hover transition-colors rounded-br-2xl"
+                              >
+                                <Plus className="h-3.5 w-3.5" /> Add
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </AnimatePresence>
 
             <button

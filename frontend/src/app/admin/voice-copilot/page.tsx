@@ -432,9 +432,17 @@ export default function VoiceCopilotPage() {
                       <p className="text-[11px] text-text-muted truncate">{u.reason}</p>
                     </div>
                     {u.addon_price != null && (
-                      <span className="text-sm font-medium text-text-secondary shrink-0">
-                        {formatCurrency(u.addon_price)}
-                      </span>
+                      <div className="shrink-0 text-right">
+                        <span className="text-xs text-text-muted line-through">
+                          {formatCurrency(u.addon_price)}
+                        </span>
+                        <span className="block text-sm font-medium text-text-secondary">
+                          {formatCurrency(u.discounted_price ?? u.addon_price)}
+                        </span>
+                        <span className="inline-block mt-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-bold text-green-700">
+                          {u.discount_percent}% OFF
+                        </span>
+                      </div>
                     )}
                   </button>
                 ))}

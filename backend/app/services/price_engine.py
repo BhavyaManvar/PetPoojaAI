@@ -49,9 +49,13 @@ def get_price_recommendations(
 
     merged = merged.merge(cat_stats, on="category", how="left")
 
+    # Sort by total_qty_sold to determine rank-based actions
+    merged = merged.sort_values("total_qty_sold", ascending=False).reset_index(drop=True)
+    total_items = len(merged)
+
     recommendations: list[dict] = []
 
-    for _, row in merged.iterrows():
+    for idx, row in merged.iterrows():
         rec = {
             "item_id": int(row["item_id"]),
             "item_name": row["item_name"],
@@ -73,13 +77,19 @@ def get_price_recommendations(
         qty_sold = row["total_qty_sold"]
         velocity = row["sales_velocity"]
 
-        # Decision logic
-        action, reason, priority = _decide_action(
-            current_price, cost, margin_pct,
-            cat_avg_price, cat_avg_margin_pct,
-            qty_sold, velocity, row["cat_avg_qty"],
-            target_margin_pct * 100,
-        )
+        # Rank-based decision: top 6 increase, bottom 2 decrease, rest keep
+        if idx < 6:
+            action = "increase"
+            reason = f"Top seller (rank #{idx + 1}) — high demand can tolerate a price increase"
+            priority = "high" if idx < 3 else "medium"
+        elif idx >= total_items - 2:
+            action = "decrease"
+            reason = f"Lowest seller (rank #{idx + 1} of {total_items}) — price reduction to boost volume"
+            priority = "medium"
+        else:
+            action = "keep"
+            reason = "Price is well-aligned with demand and margin targets"
+            priority = "low"
 
         # Compute suggested price
         suggested = _compute_suggested_price(

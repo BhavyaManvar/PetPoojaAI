@@ -135,6 +135,57 @@ def recommend_addons_batch(
     ]
 
 
+def recommend_addons_by_category(
+    item_id: int,
+    menu_df: pd.DataFrame,
+    order_items_df: pd.DataFrame,
+    sales_df: pd.DataFrame | None = None,
+) -> list[dict]:
+    """Return one best upsell recommendation per compatible category.
+
+    E.g. Pizza → 4 suggestions (1 Sides + 1 Beverages + 1 Desserts + 1 Combo).
+    """
+    selected = _find_item_tuple(item_id)
+    if not selected:
+        return []
+
+    compatible_cats = get_compatible_categories(selected[2])
+    if not compatible_cats:
+        return []
+
+    results: list[dict] = []
+    for cat in compatible_cats:
+        # Filter candidates to this specific category
+        cat_candidates = [
+            item for item in ITEMS
+            if item[2] == cat
+            and item[7]  # available
+            and item[0] != selected[0]
+        ]
+        if not cat_candidates:
+            continue
+
+        scored = _batch_score_candidates(selected, cat_candidates, _recommendation_history)
+        chosen_tuple, chosen_score = weighted_pick_top_candidates(scored, top_k=3)
+        update_history(_recommendation_history, selected[0], chosen_tuple[0])
+        message = format_recommendation_message(selected, chosen_tuple)
+
+        results.append({
+            "item": selected[1],
+            "recommended_addon": chosen_tuple[1],
+            "addon_id": chosen_tuple[0],
+            "strategy": "smart_upsell",
+            "recommended_category": chosen_tuple[2],
+            "price": chosen_tuple[3],
+            "profit": chosen_tuple[5],
+            "sales": chosen_tuple[6],
+            "score": round(chosen_score, 4),
+            "message": message,
+        })
+
+    return results
+
+
 def clear_history(item_id: int | None = None) -> None:
     """Clear recommendation history. If item_id given, clear only that item."""
     if item_id is not None:

@@ -40,11 +40,16 @@ async function fetchUpsellForItem(itemId: number): Promise<VoiceUpsellSuggestion
     if (!res.ok) return null;
     const data = await res.json();
     if (!data.recommended_addon) return null;
+    const rawPrice = data.price ?? null;
+    const discountPct = 5;
+    const discPrice = rawPrice != null ? Math.round(rawPrice * (1 - discountPct / 100) * 100) / 100 : null;
     return {
       item_name: data.item ?? '',
       recommended_addon: data.recommended_addon,
       addon_id: data.addon_id,
-      addon_price: data.price ?? null,
+      addon_price: rawPrice,
+      discount_percent: discountPct,
+      discounted_price: discPrice,
       strategy: data.strategy ?? null,
       recommended_category: data.recommended_category ?? null,
       reason: data.message ?? `Add ${data.recommended_addon} for ₹${data.price}`,
@@ -61,7 +66,10 @@ export default function VoiceOrderPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [cartItems, setCartItems] = useState<VoiceOrderItem[]>([]);
   const [primaryItemId, setPrimaryItemId] = useState<number | null>(null);
-  const [suggestion, setSuggestion] = useState<VoiceUpsellSuggestion | null>(null);
+  const [suggestions, setSuggestions] = useState<VoiceUpsellSuggestion[]>([]);
+  const [currentSuggIdx, setCurrentSuggIdx] = useState(0);
+  const [totalSaved, setTotalSaved] = useState(0);
+  const [suggestionsFinished, setSuggestionsFinished] = useState(false);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
@@ -116,16 +124,12 @@ export default function VoiceOrderPage() {
       const pid = result.items[0].item_id;
       setPrimaryItemId(pid);
 
-      // Use suggestion already returned by /voice/chat
-      const firstUpsell = result.upsells?.[0] ?? null;
-      if (firstUpsell?.recommended_addon) {
-        setSuggestion(firstUpsell);
-      } else {
-        setSuggestionLoading(true);
-        const next = await fetchUpsellForItem(pid);
-        setSuggestion(next);
-        setSuggestionLoading(false);
-      }
+      // Use all suggestions returned by /voice/chat (one per compatible category)
+      const upsells = (result.upsells ?? []).filter((u) => u.recommended_addon);
+      setSuggestions(upsells);
+      setCurrentSuggIdx(0);
+      setTotalSaved(0);
+      setSuggestionsFinished(false);
     } catch {
       // parse error
     } finally {
@@ -133,40 +137,44 @@ export default function VoiceOrderPage() {
     }
   };
 
-  const handleAddSuggestion = async () => {
-    if (!suggestion?.addon_id || !primaryItemId) return;
+  const handleAddSuggestion = (index: number) => {
+    const s = suggestions[index];
+    if (!s?.addon_id) return;
+    const price = s.discounted_price ?? s.addon_price ?? 0;
+    const originalPrice = s.addon_price ?? 0;
+    const saved = originalPrice - price;
     setCartItems((prev) => {
       const updated = [...prev];
-      const existing = updated.find((e) => e.item_id === suggestion.addon_id);
+      const existing = updated.find((e) => e.item_id === s.addon_id);
       if (existing) {
         existing.quantity += 1;
         existing.line_total = existing.unit_price * existing.quantity;
       } else {
         updated.push({
-          item_id: suggestion.addon_id!,
-          name: suggestion.recommended_addon!,
+          item_id: s.addon_id!,
+          name: s.recommended_addon!,
           quantity: 1,
-          unit_price: suggestion.addon_price ?? 0,
-          line_total: suggestion.addon_price ?? 0,
+          unit_price: price,
+          line_total: price,
           confidence: 100,
         });
       }
       return updated;
     });
-    setSuggestion(null);
-    setSuggestionLoading(true);
-    const next = await fetchUpsellForItem(primaryItemId);
-    setSuggestion(next);
-    setSuggestionLoading(false);
+    setTotalSaved((prev) => prev + saved);
+    if (index + 1 >= suggestions.length) {
+      setSuggestionsFinished(true);
+    } else {
+      setCurrentSuggIdx(index + 1);
+    }
   };
 
-  const handleSkipSuggestion = async () => {
-    if (!primaryItemId) return;
-    setSuggestion(null);
-    setSuggestionLoading(true);
-    const next = await fetchUpsellForItem(primaryItemId);
-    setSuggestion(next);
-    setSuggestionLoading(false);
+  const handleSkipSuggestion = (index: number) => {
+    if (index + 1 >= suggestions.length) {
+      setSuggestionsFinished(true);
+    } else {
+      setCurrentSuggIdx(index + 1);
+    }
   };
 
   const handlePlaceOrder = async () => {
@@ -207,7 +215,10 @@ export default function VoiceOrderPage() {
             onClick={() => {
               setOrderPlaced(false);
               setCartItems([]);
-              setSuggestion(null);
+              setSuggestions([]);
+              setCurrentSuggIdx(0);
+              setTotalSaved(0);
+              setSuggestionsFinished(false);
               setPrimaryItemId(null);
               setText('');
             }}
@@ -337,8 +348,8 @@ export default function VoiceOrderPage() {
                 </div>
               </div>
 
-              {/* AI Suggestion — Combo Card */}
-              <AnimatePresence mode="wait">
+              {/* AI Suggestions — One at a time */}
+              <AnimatePresence mode="sync">
                 {suggestionLoading ? (
                   <motion.div
                     key="loading"
@@ -349,7 +360,7 @@ export default function VoiceOrderPage() {
                   >
                     <Sparkles className="h-5 w-5 text-primary mx-auto mb-2" />
                     <p className="text-xs text-zomato-gray mb-3">
-                      Finding the perfect combo for you…
+                      Finding the perfect combos for you…
                     </p>
                     <div className="flex justify-center gap-1.5">
                       {[0, 120, 240].map((d) => (
@@ -361,90 +372,90 @@ export default function VoiceOrderPage() {
                       ))}
                     </div>
                   </motion.div>
-                ) : suggestion?.recommended_addon
-                  ? (() => {
-                      const style = getCategoryStyle(suggestion.recommended_category);
-                      return (
-                        <motion.div
-                          key={suggestion.recommended_addon}
-                          initial={{ opacity: 0, scale: 0.95, y: 12 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.95, y: -12 }}
-                          transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-                        >
-                          {/* Section header */}
-                          <div className="flex items-center gap-2 mb-3">
-                            <Sparkles className="h-4 w-4 text-primary" />
-                            <p className="text-xs font-semibold text-primary uppercase tracking-wide">
-                              Recommended for you
-                            </p>
-                          </div>
-
-                          {/* Combo product card */}
-                          <div
-                            className={`rounded-2xl border-2 ${style.border} ${style.bg} overflow-hidden transition-all hover:shadow-card-hover`}
+                ) : suggestionsFinished && totalSaved > 0 ? (
+                  <motion.div
+                    key="savings"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="rounded-2xl border-2 border-green-300 bg-green-50 p-5 text-center"
+                  >
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100 mx-auto mb-3">
+                      <Check className="h-6 w-6 text-green-600" />
+                    </div>
+                    <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">Total Savings</p>
+                    <p className="text-2xl font-bold text-green-700">{formatCurrency(totalSaved)}</p>
+                    <p className="text-xs text-green-600 mt-1">You saved with our special discounts!</p>
+                  </motion.div>
+                ) : suggestions.length > 0 && currentSuggIdx < suggestions.length ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        <p className="text-xs font-semibold text-primary uppercase tracking-wide">
+                          Recommended for you
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-medium text-zomato-gray bg-gray-100 rounded-full px-2 py-0.5">
+                        {currentSuggIdx + 1} of {suggestions.length}
+                      </span>
+                    </div>
+                    <AnimatePresence mode="wait">
+                      {(() => {
+                        const s = suggestions[currentSuggIdx];
+                        const style = getCategoryStyle(s.recommended_category);
+                        return (
+                          <motion.div
+                            key={`${s.addon_id}-${currentSuggIdx}`}
+                            initial={{ opacity: 0, x: 60 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -60 }}
+                            transition={{ type: 'spring', stiffness: 300, damping: 25 }}
                           >
-                            <div className="p-5">
-                              <div className="flex items-start gap-4">
-                                {/* Category icon */}
-                                <div
-                                  className={`flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-2xl ${style.badge} text-2xl`}
-                                >
-                                  {style.emoji}
-                                </div>
-
-                                {/* Item details */}
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    {suggestion.recommended_category && (
-                                      <span
-                                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${style.badge}`}
-                                      >
-                                        {suggestion.recommended_category}
+                            <div className={`rounded-2xl border-2 ${style.border} ${style.bg} overflow-hidden transition-all hover:shadow-card-hover`}>
+                              <div className="p-4">
+                                <div className="flex items-start gap-3">
+                                  <div className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl ${style.badge} text-xl`}>
+                                    {style.emoji}
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    {s.recommended_category && (
+                                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${style.badge} mb-1`}>
+                                        {s.recommended_category}
                                       </span>
                                     )}
+                                    <h4 className="text-sm font-bold text-zomato-dark truncate">{s.recommended_addon}</h4>
+                                    <p className="text-[11px] text-zomato-gray mt-0.5 line-clamp-1">{s.reason}</p>
                                   </div>
-                                  <h4 className="text-base font-bold text-zomato-dark truncate">
-                                    {suggestion.recommended_addon}
-                                  </h4>
-                                  <p className="text-xs text-zomato-gray mt-1 line-clamp-2 leading-relaxed">
-                                    {suggestion.reason}
-                                  </p>
+                                  {s.addon_price != null && (
+                                    <div className="flex-shrink-0 text-right">
+                                      <p className="text-[11px] text-zomato-gray line-through">{formatCurrency(s.addon_price)}</p>
+                                      <p className={`text-base font-bold ${style.text}`}>{formatCurrency(s.discounted_price ?? s.addon_price)}</p>
+                                      <span className="inline-block mt-0.5 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-bold text-green-700">{s.discount_percent}% OFF</span>
+                                    </div>
+                                  )}
                                 </div>
-
-                                {/* Price */}
-                                {suggestion.addon_price != null && (
-                                  <div className="flex-shrink-0 text-right">
-                                    <p className={`text-lg font-bold ${style.text}`}>
-                                      {formatCurrency(suggestion.addon_price)}
-                                    </p>
-                                  </div>
-                                )}
+                              </div>
+                              <div className="flex border-t border-inherit">
+                                <button
+                                  onClick={() => handleSkipSuggestion(currentSuggIdx)}
+                                  className="flex-1 flex items-center justify-center gap-1 py-2.5 text-xs font-medium text-zomato-gray hover:bg-white/60 transition-colors border-r border-inherit"
+                                >
+                                  <X className="h-3 w-3" /> Skip
+                                </button>
+                                <button
+                                  onClick={() => handleAddSuggestion(currentSuggIdx)}
+                                  className="flex-[2] flex items-center justify-center gap-1 py-2.5 text-sm font-bold text-white bg-primary hover:bg-primary-600 transition-colors rounded-br-2xl"
+                                >
+                                  <Plus className="h-3.5 w-3.5" /> Add
+                                </button>
                               </div>
                             </div>
-
-                            {/* Action buttons */}
-                            <div className="flex border-t border-inherit">
-                              <button
-                                onClick={handleSkipSuggestion}
-                                className="flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-medium text-zomato-gray hover:bg-white/60 transition-colors border-r border-inherit"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                                Skip
-                              </button>
-                              <button
-                                onClick={handleAddSuggestion}
-                                className="flex-[2] flex items-center justify-center gap-1.5 py-3 text-sm font-bold text-white bg-primary hover:bg-primary-600 transition-colors rounded-br-2xl"
-                              >
-                                <Plus className="h-4 w-4" />
-                                Add to Order
-                              </button>
-                            </div>
-                          </div>
-                        </motion.div>
-                      );
-                    })()
-                  : null}
+                          </motion.div>
+                        );
+                      })()}
+                    </AnimatePresence>
+                  </div>
+                ) : null}
               </AnimatePresence>
 
               {!user && (

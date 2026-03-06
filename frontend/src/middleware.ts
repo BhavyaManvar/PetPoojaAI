@@ -45,12 +45,7 @@ export function middleware(request: NextRequest) {
   }
 
   // ── Customer site (port 3000) ───────────────────────────────────
-  if (pathname.startsWith("/admin")) {
-    const url = new URL(pathname, `http://localhost:3001`);
-    url.search = request.nextUrl.search;
-    return NextResponse.redirect(url);
-  }
-
+  // Allow /admin routes on port 3000 as well (single-port mode)
   return NextResponse.next();
 }
 

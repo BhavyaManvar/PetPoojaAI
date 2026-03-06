@@ -22,7 +22,7 @@ from app.services.voice_parser import (
     detect_intent,
 )
 from app.services.order_service import resolve_items, build_pos_payload
-from app.services.upsell_engine import recommend_addons_batch, clear_history
+from app.services.upsell_engine import recommend_addons_batch, recommend_addons_by_category, clear_history
 
 router = APIRouter()
 
@@ -136,11 +136,11 @@ async def voice_chat(
         summary = ", ".join(f"{i.qty}x {i.item_name} (₹{i.line_total:.0f})" for i in chat_items)
         message = f"Added {summary} to your order."
 
-        # ── Upsell suggestions ───────────────────────────────────────────
-        item_ids = [i.item_id for i in chat_items]
+        # ── Upsell suggestions (one per compatible category) ────────────
+        first_item_id = chat_items[0].item_id
         menu_df = dfs["menu"]
-        upsell_recs = recommend_addons_batch(
-            item_ids, menu_df, dfs["order_items"], dfs.get("sales_analytics"),
+        upsell_recs = recommend_addons_by_category(
+            first_item_id, menu_df, dfs["order_items"], dfs.get("sales_analytics"),
         )
 
         upsells: list[VoiceChatUpsell] = []
@@ -150,19 +150,23 @@ async def voice_chat(
             addon = rec.get("recommended_addon")
             if not addon or addon in ordered_names:
                 continue
+            raw_price = rec.get("price")
+            discount_pct = 5.0
+            disc_price = round(raw_price * (1 - discount_pct / 100), 2) if raw_price else None
             upsells.append(VoiceChatUpsell(
                 item_name=rec.get("item", ""),
                 recommended_addon=addon,
                 addon_id=rec.get("addon_id"),
-                addon_price=rec.get("price"),
+                addon_price=raw_price,
+                discount_percent=discount_pct,
+                discounted_price=disc_price,
                 strategy=rec.get("strategy", "smart_upsell"),
                 recommended_category=rec.get("recommended_category"),
                 reason=rec.get("message") or "You might enjoy this!",
             ))
-            break  # One suggestion at a time
 
         if upsells:
-            message += f" {upsells[0].reason}"
+            message += f" We have {len(upsells)} suggestions for you!"
         else:
             message += " Anything else you'd like to add?"
     else:
