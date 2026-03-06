@@ -72,13 +72,13 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-3">
             <Link href="/login" className="text-sm text-white/70 hover:text-white transition-colors">
-              Sign In
+              Admin Sign In
             </Link>
             <Link
-              href="/signup"
+              href="http://localhost:5173"
               className="rounded-full bg-white px-4 py-2 text-sm font-medium text-black hover:bg-white/90 transition-colors"
             >
-              Get Started
+              Order Food
             </Link>
           </div>
         </div>
@@ -139,10 +139,10 @@ export default function LandingPage() {
             className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center"
           >
             <Link
-              href="/signup"
+              href="http://localhost:5173"
               className="group inline-flex items-center gap-2 rounded-full bg-white px-7 py-3.5 text-sm font-semibold text-black transition-all hover:bg-white/90 hover:shadow-lg hover:shadow-white/10"
             >
-              Start Free Trial
+              Order Now
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </Link>
             <Link
@@ -402,7 +402,7 @@ export default function LandingPage() {
                     ))}
                   </ul>
                   <Link
-                    href="/signup"
+                    href="/login"
                     className={`block w-full rounded-xl py-3 text-center text-sm font-semibold transition-all ${
                       plan.highlighted
                         ? "bg-white text-black hover:bg-white/90"
@@ -509,10 +509,10 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
               <Link
-                href="/signup"
+                href="/login"
                 className="group inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-sm font-semibold text-black transition-all hover:bg-white/90 hover:shadow-lg hover:shadow-white/10"
               >
-                Start Free Trial
+                Admin Sign In
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Link>
               <Link

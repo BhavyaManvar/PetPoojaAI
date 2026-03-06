@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { motion } from "framer-motion";
 
 export default function LoginPage() {
@@ -162,12 +161,13 @@ export default function LoginPage() {
             Launch Demo Mode (Admin)
           </button>
 
-          <p className="mt-6 text-center text-sm text-text-muted">
-            Don&apos;t have an account?{" "}
-            <Link href="/signup" className="text-text-primary font-medium hover:underline">
-              Sign up
-            </Link>
-          </p>
+          <div className="mt-6 rounded-lg bg-amber-50 px-4 py-3 text-center text-sm text-amber-800">
+            <p className="font-medium">Restaurant owners</p>
+            <p className="mt-0.5 text-xs text-amber-600">
+              Accounts are provided by our team.
+              Contact <strong>owner@yourdomain.com</strong>
+            </p>
+          </div>
         </motion.div>
       </div>
     </div>
