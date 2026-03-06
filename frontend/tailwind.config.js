@@ -5,37 +5,66 @@ module.exports = {
     extend: {
       colors: {
         surface: {
-          bg: "#F4F4F4",
+          bg: "#FAFAFA",
           card: "#FFFFFF",
-          border: "#E5E5E5",
+          border: "#E8E8E8",
+          dark: "#0A0A0A",
         },
         text: {
-          primary: "#111111",
-          secondary: "#4A4A4A",
-          muted: "#8A8A8A",
+          primary: "#0A0A0A",
+          secondary: "#525252",
+          muted: "#A3A3A3",
+          inverse: "#FAFAFA",
         },
         accent: {
-          DEFAULT: "#C47A2C",
-          light: "#D4943F",
-          dark: "#A86520",
-          muted: "rgba(196, 122, 44, 0.08)",
+          DEFAULT: "#171717",
+          light: "#404040",
+          dark: "#0A0A0A",
+          muted: "rgba(23, 23, 23, 0.06)",
+          warm: "#D97706",
         },
         btn: {
-          DEFAULT: "#1F1F1F",
-          hover: "#333333",
+          DEFAULT: "#0A0A0A",
+          hover: "#262626",
         },
         status: {
-          star: "#C47A2C",
-          plowhorse: "#3B82F6",
-          puzzle: "#8B5CF6",
-          dog: "#EF4444",
+          star: "#D97706",
+          plowhorse: "#2563EB",
+          puzzle: "#7C3AED",
+          dog: "#DC2626",
+        },
+        landing: {
+          bg: "#000000",
+          card: "#111111",
+          border: "#222222",
+          muted: "#888888",
         },
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
+        display: ["Inter", "system-ui", "-apple-system", "sans-serif"],
       },
       borderRadius: {
-        card: "10px",
+        card: "12px",
+      },
+      animation: {
+        "fade-in": "fadeIn 0.6s ease-out forwards",
+        "slide-up": "slideUp 0.6s ease-out forwards",
+        "scale-in": "scaleIn 0.4s ease-out forwards",
+      },
+      keyframes: {
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        slideUp: {
+          "0%": { opacity: "0", transform: "translateY(24px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        scaleIn: {
+          "0%": { opacity: "0", transform: "scale(0.95)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
       },
     },
   },

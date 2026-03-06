@@ -2,20 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  --background: #F4F4F4;
-  --foreground: #111111;
+  --background: #FAFAFA;
+  --foreground: #0A0A0A;
   --card: #FFFFFF;
-  --card-foreground: #111111;
-  --border: #E5E5E5;
-  --muted: #F4F4F4;
-  --muted-foreground: #4A4A4A;
-  --accent: #C47A2C;
-  --accent-light: #D4943F;
-  --btn: #1F1F1F;
-  --btn-hover: #333333;
+  --card-foreground: #0A0A0A;
+  --border: #E8E8E8;
+  --muted: #F5F5F5;
+  --muted-foreground: #525252;
+  --accent: #171717;
+  --accent-warm: #D97706;
+  --btn: #0A0A0A;
+  --btn-hover: #262626;
 }
 
 * {
@@ -60,4 +60,24 @@ body {
 @keyframes pulse-ring {
   0% { transform: scale(1); opacity: 0.4; }
   100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.glass-dark {
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Smooth transitions for interactive elements */
+.transition-smooth {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }

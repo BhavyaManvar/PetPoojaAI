@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import threading
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
@@ -167,23 +167,29 @@ def create_order(
     """
     global _order_counter
 
+    if not items:
+        raise ValueError("Order must contain at least one item")
+
     line_items: list[dict] = []
     total_price = 0.0
 
     for line in items:
+        qty = int(line.get("qty", 1))
+        if qty < 1 or qty > 100:
+            raise ValueError(f"Invalid quantity {qty} for item {line.get('item_id')} — must be 1-100")
         row = menu_df.loc[menu_df["item_id"] == line["item_id"]]
         if row.empty:
             continue
         unit_price = float(row.iloc[0]["price"])
         item_name = str(row.iloc[0]["item_name"])
         category = str(row.iloc[0].get("category", ""))
-        line_total = unit_price * line["qty"]
+        line_total = unit_price * qty
         total_price += line_total
         line_items.append({
             "item_id": int(line["item_id"]),
             "item_name": item_name,
             "category": category,
-            "qty": line["qty"],
+            "qty": qty,
             "unit_price": unit_price,
             "line_total": round(line_total, 2),
         })
@@ -197,7 +203,7 @@ def create_order(
         "status": "confirmed",
         "total_price": round(total_price, 2),
         "order_source": order_source,
-        "created_at": (created_at or datetime.utcnow()).isoformat(),
+        "created_at": (created_at or datetime.now(timezone.utc)).isoformat(),
         "items": line_items,
     }
 
@@ -218,7 +224,7 @@ def seed_demo_orders(menu_df: pd.DataFrame, count: int = 25) -> list[dict]:
 
     ids = menu_df["item_id"].tolist()
     sources = ["voice", "manual", "online"]
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     seeded: list[dict] = []
     for i in range(count):

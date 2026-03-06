@@ -6,7 +6,6 @@ import {
   LayoutDashboard,
   UtensilsCrossed,
   TrendingUp,
-  Mic,
   ClipboardList,
   Users,
   LogOut,
@@ -14,6 +13,7 @@ import {
   ChevronRight,
   DollarSign,
   ShoppingCart,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/utils/helpers";
 import { useAuth } from "@/contexts/AuthContext";
@@ -21,14 +21,14 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/menu-manager", label: "Menu Manager", icon: UtensilsCrossed },
-  { href: "/revenue-insights", label: "Revenue Insights", icon: TrendingUp },
-  { href: "/combo-insights", label: "Combo Insights", icon: ShoppingCart },
-  { href: "/price-optimization", label: "Price Optimization", icon: DollarSign },
-  { href: "/voice-copilot", label: "Voice Orders", icon: Mic },
-  { href: "/order-history", label: "Order History", icon: ClipboardList },
-  { href: "/staff", label: "Staff Management", icon: Users, adminOnly: true },
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/menu-manager", label: "Menu Manager", icon: UtensilsCrossed },
+  { href: "/admin/revenue-insights", label: "Revenue Insights", icon: TrendingUp },
+  { href: "/admin/combo-insights", label: "Combo Insights", icon: ShoppingCart },
+  { href: "/admin/price-optimization", label: "Price Optimization", icon: DollarSign },
+  { href: "/admin/order-history", label: "Order History", icon: ClipboardList },
+  { href: "/admin/ai-assistant", label: "AI Assistant", icon: Bot },
+  { href: "/admin/staff", label: "Staff Management", icon: Users, adminOnly: true },
 ];
 
 export function Sidebar() {

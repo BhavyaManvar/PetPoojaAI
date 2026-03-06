@@ -28,7 +28,7 @@ import {
 } from "firebase/firestore";
 import { auth as getAuth, db as getDb } from "@/lib/firebase";
 
-export type UserRole = "admin" | "staff";
+export type UserRole = "admin" | "staff" | "customer";
 
 export interface AppUser {
   id: string;
@@ -68,26 +68,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [demoMode, setDemoMode] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(getAuth(), async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
-        const userDoc = await getDoc(doc(getDb(), "users", firebaseUser.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          setAppUser({
-            id: firebaseUser.uid,
-            name: data.name,
-            email: data.email,
-            role: data.role,
-            createdAt: data.createdAt?.toDate() || new Date(),
-          });
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = onAuthStateChanged(
+        getAuth(),
+        async (firebaseUser) => {
+          setUser(firebaseUser);
+          if (firebaseUser) {
+            try {
+              const userDoc = await getDoc(doc(getDb(), "users", firebaseUser.uid));
+              if (userDoc.exists()) {
+                const data = userDoc.data();
+                setAppUser({
+                  id: firebaseUser.uid,
+                  name: data.name,
+                  email: data.email,
+                  role: data.role,
+                  createdAt: data.createdAt?.toDate() || new Date(),
+                });
+              }
+            } catch {
+              // Firestore unavailable — continue without user profile
+            }
+          } else {
+            setAppUser(null);
+          }
+          setLoading(false);
+        },
+        () => {
+          // Auth error (e.g. network issue, invalid config)
+          setLoading(false);
         }
-      } else {
-        setAppUser(null);
-      }
+      );
+    } catch {
+      // Firebase not configured — fall back to unauthenticated state
       setLoading(false);
-    });
-    return unsubscribe;
+    }
+    return () => unsubscribe?.();
   }, []);
 
   const signIn = async (email: string, password: string) => {

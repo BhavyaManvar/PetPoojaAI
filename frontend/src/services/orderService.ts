@@ -6,8 +6,6 @@ import {
   orderBy,
   limit,
   serverTimestamp,
-  where,
-  Timestamp,
 } from "firebase/firestore";
 import { db as getDb } from "@/lib/firebase";
 
@@ -54,24 +52,6 @@ export async function getOrders(limitCount = 50): Promise<OrderDoc[]> {
     collection(getDb(), COLLECTION),
     orderBy("createdAt", "desc"),
     limit(limitCount)
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => {
-    const data = d.data();
-    return {
-      id: d.id,
-      ...data,
-      createdAt: data.createdAt?.toDate() || new Date(),
-    } as OrderDoc;
-  });
-}
-
-export async function getOrdersInRange(startDate: Date, endDate: Date): Promise<OrderDoc[]> {
-  const q = query(
-    collection(getDb(), COLLECTION),
-    where("createdAt", ">=", Timestamp.fromDate(startDate)),
-    where("createdAt", "<=", Timestamp.fromDate(endDate)),
-    orderBy("createdAt", "desc")
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => {
