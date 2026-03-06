@@ -1,5 +1,5 @@
 import { ENDPOINTS } from "./endpoints";
-import type { KPIData, Combo, UpsellResult, VoiceParseResponse, OrderResponse, OrderLineItem, TopCombosResponse } from "@/types/order";
+import type { KPIData, Combo, UpsellResult, VoiceParseResponse, OrderResponse, OrderLineItem, TopCombosResponse, PriceRecommendation, PriceSummary } from "@/types/order";
 import type { MenuItem, HiddenStar, RiskItem } from "@/types/menu";
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -59,6 +59,31 @@ export function parseVoice(text: string): Promise<VoiceParseResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
   });
+}
+
+// ── Price Optimization ──────────────────────────────────────────────────────────
+export async function fetchPriceRecommendations(opts?: {
+  category?: string;
+  action?: string;
+  priority?: string;
+}): Promise<PriceRecommendation[]> {
+  const params = new URLSearchParams();
+  if (opts?.category) params.set("category", opts.category);
+  if (opts?.action) params.set("action", opts.action);
+  if (opts?.priority) params.set("priority", opts.priority);
+  const qs = params.toString();
+  const url = qs ? `${ENDPOINTS.priceRecommendations}?${qs}` : ENDPOINTS.priceRecommendations;
+  const data = await fetchJSON<{ recommendations: PriceRecommendation[] }>(url);
+  return data.recommendations;
+}
+
+export function fetchPriceSummary(): Promise<PriceSummary> {
+  return fetchJSON<PriceSummary>(ENDPOINTS.priceSummary);
+}
+
+// ── Basket Stats ────────────────────────────────────────────────────────────────
+export async function fetchBasketStats() {
+  return fetchJSON<import("@/types/order").BasketStats>(ENDPOINTS.basketStats);
 }
 
 // ── Orders ──────────────────────────────────────────────────────────────────────

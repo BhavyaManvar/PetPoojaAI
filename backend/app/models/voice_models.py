@@ -88,9 +88,20 @@ class VoiceChatItem(BaseModel):
     confidence: float = 0.0
 
 
+class VoiceChatUpsell(BaseModel):
+    """An upsell suggestion returned alongside the chat response."""
+    item_name: str = Field(..., description="The item this upsell is for")
+    recommended_addon: str | None = None
+    addon_id: int | None = None
+    addon_price: float | None = None
+    strategy: str | None = None
+    reason: str = ""
+
+
 class VoiceChatResponse(BaseModel):
     """Response from /voice/chat — parse + price lookup without creating an order."""
     intent: str = Field("ORDER_ITEM", description="Detected intent")
     items: list[VoiceChatItem] = []
+    upsells: list[VoiceChatUpsell] = Field(default_factory=list, description="AI upsell suggestions")
     message: str = ""
     language: str = Field("en")

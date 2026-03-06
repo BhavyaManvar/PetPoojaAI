@@ -8,6 +8,7 @@ from app.api.routes_menu import router as menu_router
 from app.api.routes_combo import router as combo_router
 from app.api.routes_voice import router as voice_router
 from app.api.routes_order import router as order_router
+from app.api.routes_price import router as price_router
 from app.config import settings
 
 app = FastAPI(
@@ -29,6 +30,7 @@ app.include_router(menu_router, prefix="/menu", tags=["Menu Intelligence"])
 app.include_router(combo_router, prefix="/combos", tags=["Combo & Upsell Engine"])
 app.include_router(voice_router, prefix="/voice", tags=["Voice Copilot"])
 app.include_router(order_router, prefix="/order", tags=["Order / PoS"])
+app.include_router(price_router, prefix="/price", tags=["Price Optimization"])
 
 
 @app.get("/health")

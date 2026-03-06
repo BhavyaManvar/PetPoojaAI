@@ -65,3 +65,41 @@ export interface OrderResponse {
     line_total: number;
   }[];
 }
+
+export interface PriceRecommendation {
+  item_id: number;
+  item_name: string;
+  category: string;
+  current_price: number;
+  cost: number;
+  current_margin_pct: number;
+  category_avg_price: number;
+  category_avg_margin_pct: number;
+  total_qty_sold: number;
+  sales_velocity: number;
+  suggested_price: number;
+  price_change: number;
+  price_change_pct: number;
+  action: "increase" | "decrease" | "keep";
+  reason: string;
+  priority: "high" | "medium" | "low";
+  projected_monthly_uplift: number;
+}
+
+export interface PriceSummary {
+  total_items: number;
+  items_to_increase: number;
+  items_to_decrease: number;
+  items_optimal: number;
+  total_monthly_uplift: number;
+  avg_margin_pct: number;
+}
+
+export interface VoiceChatUpsell {
+  item_name: string;
+  recommended_addon: string | null;
+  addon_id: number | null;
+  addon_price: number | null;
+  strategy: string | null;
+  reason: string;
+}
