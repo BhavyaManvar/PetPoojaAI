@@ -137,9 +137,9 @@ export async function placeOrderViaBackend(
 ): Promise<{ order_id: number; total_price: number }> {
   const res = await fetch(ENDPOINTS.orderPush, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    headers: { "Content-Type": "application/json" },    body: JSON.stringify({
       items: items.map((i) => ({ item_id: i.item_id, qty: i.quantity })),
+      order_source: "voice",
     }),
   });
 

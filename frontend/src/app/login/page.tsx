@@ -5,8 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 
-export default function LoginPage() {
-  const { signIn, user, loading } = useAuth();
+export default function LoginPage() {  const { signIn, user, loading, demoSignIn, demoMode } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,12 +13,12 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!loading && user) {
+    if (!loading && (user || demoMode)) {
       router.replace("/dashboard");
     }
-  }, [loading, user, router]);
+  }, [loading, user, demoMode, router]);
 
-  if (loading || user) {
+  if (loading || user || demoMode) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-surface-bg">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-surface-border border-t-accent" />
@@ -128,9 +127,7 @@ export default function LoginPage() {
               <div className="rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600">
                 {error}
               </div>
-            )}
-
-            <button
+            )}            <button
               type="submit"
               disabled={submitting}
               className="w-full rounded-lg bg-btn py-2.5 text-sm font-medium text-white transition-colors hover:bg-btn-hover disabled:opacity-50"
@@ -138,6 +135,22 @@ export default function LoginPage() {
               {submitting ? "Signing in..." : "Sign In"}
             </button>
           </form>
+
+          <div className="relative my-5">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-surface-border" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-surface-bg px-2 text-text-muted">or</span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => { demoSignIn(); router.replace("/dashboard"); }}
+            className="w-full rounded-lg border-2 border-accent bg-accent/5 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10"
+          >
+            🚀 Launch Demo Mode
+          </button>
 
           <p className="mt-6 text-center text-xs text-text-muted">
             Contact your administrator to get access credentials.

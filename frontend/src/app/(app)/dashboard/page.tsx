@@ -21,7 +21,8 @@ import {
   Pie,
   Cell,
 } from "recharts";
-import { computeDashboardKPIs, type DashboardKPIs } from "@/services/analyticsService";
+import { fetchKPIs } from "@/services/api";
+import type { KPIData } from "@/types/order";
 import { formatCurrency, formatNumber } from "@/utils/helpers";
 
 const container = {
@@ -37,11 +38,11 @@ const item = {
 const PIE_COLORS = ["#C47A2C", "#1F1F1F", "#8A8A8A", "#D4943F", "#E5E5E5"];
 
 export default function DashboardPage() {
-  const [kpis, setKpis] = useState<DashboardKPIs | null>(null);
+  const [kpis, setKpis] = useState<KPIData | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    computeDashboardKPIs()
+    fetchKPIs()
       .then(setKpis)
       .catch(console.error)
       .finally(() => setLoading(false));
@@ -63,33 +64,39 @@ export default function DashboardPage() {
       </div>
     );
   }
-
   const kpiCards = [
     {
       label: "Total Revenue",
-      value: formatCurrency(kpis.totalRevenue),
+      value: formatCurrency(kpis.total_revenue),
       icon: DollarSign,
       change: "+12.5%",
     },
     {
       label: "Avg Order Value",
-      value: formatCurrency(kpis.avgOrderValue),
+      value: formatCurrency(kpis.avg_order_value),
       icon: TrendingUp,
       change: "+3.2%",
     },
     {
       label: "Total Orders",
-      value: formatNumber(kpis.totalOrders),
+      value: formatNumber(kpis.total_orders),
       icon: ShoppingCart,
       change: "+8.1%",
     },
     {
-      label: "Upsell Rate",
-      value: `${kpis.upsellConversionRate.toFixed(1)}%`,
+      label: "Top City",
+      value: kpis.top_city,
       icon: Zap,
-      change: "+1.4%",
+      change: "#1",
     },
   ];
+
+  const cityRevenueData = Object.entries(kpis.revenue_by_city || {})
+    .map(([city, revenue]) => ({ city, revenue }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 7);
+
+  const topItems = (kpis.top_items || []).slice(0, 5);
 
   return (
     <div>
@@ -134,22 +141,20 @@ export default function DashboardPage() {
         </div>
 
         {/* Charts */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {/* Revenue Chart */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">          {/* Revenue by City Chart */}
           <motion.div
             variants={item}
             className="col-span-2 rounded-card border border-surface-border bg-surface-card p-5"
           >
             <h3 className="text-[13px] font-medium text-text-muted mb-4">
-              Daily Revenue
+              Revenue by City
             </h3>
             <div className="h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={kpis.revenueByDay}>
+                <BarChart data={cityRevenueData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#E5E5E5" vertical={false} />
                   <XAxis
-                    dataKey="date"
-                    tickFormatter={(d) => new Date(d).toLocaleDateString("en", { weekday: "short" })}
+                    dataKey="city"
                     tick={{ fontSize: 12, fill: "#8A8A8A" }}
                     axisLine={false}
                     tickLine={false}
@@ -187,9 +192,9 @@ export default function DashboardPage() {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={kpis.topSellingItems.slice(0, 5)}
-                    dataKey="qty"
-                    nameKey="name"
+                    data={topItems}
+                    dataKey="total_qty"
+                    nameKey="item_name"
                     cx="50%"
                     cy="50%"
                     outerRadius={80}
@@ -197,7 +202,7 @@ export default function DashboardPage() {
                     strokeWidth={2}
                     stroke="#fff"
                   >
-                    {kpis.topSellingItems.slice(0, 5).map((_, i) => (
+                    {topItems.map((_: unknown, i: number) => (
                       <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                     ))}
                   </Pie>
@@ -213,67 +218,59 @@ export default function DashboardPage() {
               </ResponsiveContainer>
             </div>
             <div className="mt-2 space-y-2">
-              {kpis.topSellingItems.slice(0, 5).map((si, i) => (
-                <div key={si.name} className="flex items-center gap-2 text-[13px]">
+              {topItems.map((si: { item_name: string; total_qty: number }, i: number) => (
+                <div key={si.item_name} className="flex items-center gap-2 text-[13px]">
                   <div
                     className="h-2.5 w-2.5 rounded-full"
                     style={{ background: PIE_COLORS[i % PIE_COLORS.length] }}
                   />
-                  <span className="flex-1 truncate text-text-secondary">{si.name}</span>
-                  <span className="font-medium text-text-primary">{si.qty}</span>
+                  <span className="flex-1 truncate text-text-secondary">{si.item_name}</span>
+                  <span className="font-medium text-text-primary">{si.total_qty}</span>
                 </div>
               ))}
             </div>
           </motion.div>
-        </div>
-
-        {/* High Margin Items */}
+        </div>        {/* Revenue by Order Type */}
         <motion.div
           variants={item}
           className="rounded-card border border-surface-border bg-surface-card p-5"
         >
           <h3 className="text-[13px] font-medium text-text-muted mb-4">
-            High Margin Items
+            Revenue by Order Type
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-surface-border">
                   <th className="pb-3 text-[12px] font-medium text-text-muted uppercase tracking-wider">
-                    Item
+                    Order Type
                   </th>
                   <th className="pb-3 text-[12px] font-medium text-text-muted uppercase tracking-wider text-right">
-                    Margin
+                    Revenue
                   </th>
                   <th className="pb-3 text-[12px] font-medium text-text-muted uppercase tracking-wider text-right">
-                    Classification
+                    Share
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-surface-border">
-                {kpis.highMarginItems.map((mi) => (
-                  <tr key={mi.name}>
-                    <td className="py-3 text-sm text-text-primary">{mi.name}</td>
-                    <td className="py-3 text-sm text-text-primary text-right font-medium">
-                      {formatCurrency(mi.margin)}
-                    </td>
-                    <td className="py-3 text-right">
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          mi.classification === "Star"
-                            ? "bg-accent-muted text-accent"
-                            : mi.classification === "Puzzle"
-                            ? "bg-purple-50 text-purple-600"
-                            : mi.classification === "Plowhorse"
-                            ? "bg-blue-50 text-blue-600"
-                            : "bg-red-50 text-red-500"
-                        }`}
-                      >
-                        {mi.classification}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {Object.entries(kpis.revenue_by_order_type || {})
+                  .sort(([, a], [, b]) => b - a)
+                  .map(([type, rev]) => (
+                    <tr key={type}>
+                      <td className="py-3 text-sm text-text-primary capitalize">{type}</td>
+                      <td className="py-3 text-sm text-text-primary text-right font-medium">
+                        {formatCurrency(rev)}
+                      </td>
+                      <td className="py-3 text-right">
+                        <span className="inline-block rounded-full bg-accent-muted px-2.5 py-0.5 text-xs font-medium text-accent">
+                          {kpis.total_revenue > 0
+                            ? ((rev / kpis.total_revenue) * 100).toFixed(1)
+                            : "0"}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>

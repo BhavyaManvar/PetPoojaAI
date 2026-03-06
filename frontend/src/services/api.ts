@@ -87,10 +87,31 @@ export async function fetchBasketStats() {
 }
 
 // ── Orders ──────────────────────────────────────────────────────────────────────
-export function pushOrder(items: OrderLineItem[]): Promise<OrderResponse> {
+export function pushOrder(items: OrderLineItem[], orderSource = "manual"): Promise<OrderResponse> {
   return fetchJSON<OrderResponse>(ENDPOINTS.orderPush, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, order_source: orderSource }),
+  });
+}
+
+export async function fetchOrders(limit = 50): Promise<{
+  orders: (OrderResponse & { order_source?: string; created_at?: string })[];
+  total: number;
+}> {
+  return fetchJSON(ENDPOINTS.orderList + `?limit=${limit}`);
+}
+
+export async function fetchOrderById(
+  id: number
+): Promise<OrderResponse & { order_source?: string; created_at?: string }> {
+  return fetchJSON(ENDPOINTS.orderById(id));
+}
+
+export async function seedOrders(count = 25): Promise<{ seeded: number; message: string }> {
+  return fetchJSON(ENDPOINTS.orderSeed, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ count }),
   });
 }

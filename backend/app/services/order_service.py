@@ -1,13 +1,17 @@
-"""Order Service — build, validate, and confirm PoS orders.
+"""Order Service — build, validate, confirm, and store PoS orders.
 
 Handles two flows:
 1. **Voice flow** — resolved item names → item IDs → PoS payload.
 2. **Direct flow** — caller already provides item IDs.
+
+Orders are stored in-memory so they can be listed via GET /orders.
 """
 
 from __future__ import annotations
 
 import threading
+import random
+from datetime import datetime, timedelta
 from typing import Optional
 
 import pandas as pd
@@ -16,6 +20,41 @@ from app.utils.fuzzy_match import best_match
 
 _lock = threading.Lock()
 _order_counter: int = 1000
+
+# ── In-memory order store ───────────────────────────────────────────────────────
+_orders: list[dict] = []
+
+
+def get_all_orders(limit: int = 100) -> list[dict]:
+    """Return stored orders (newest first)."""
+    with _lock:
+        return list(reversed(_orders[-limit:]))
+
+
+def get_order_by_id(order_id: int) -> dict | None:
+    """Find a single order by ID."""
+    with _lock:
+        for o in _orders:
+            if o["order_id"] == order_id:
+                return o
+    return None
+
+
+def _store_order(order: dict) -> None:
+    """Append an order to the in-memory store."""
+    with _lock:
+        _orders.append(order)
+
+
+def get_order_count() -> int:
+    with _lock:
+        return len(_orders)
+
+
+def clear_orders() -> None:
+    """Clear all stored orders (used by seed)."""
+    with _lock:
+        _orders.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -109,16 +148,22 @@ def build_pos_payload(
 # Core order creator (works with item_id directly)
 # ---------------------------------------------------------------------------
 
-def create_order(items: list[dict], menu_df: pd.DataFrame) -> dict:
-    """Create an order from parsed line items.
+def create_order(
+    items: list[dict],
+    menu_df: pd.DataFrame,
+    order_source: str = "manual",
+    created_at: datetime | None = None,
+) -> dict:
+    """Create an order from parsed line items and store it.
 
     Args:
         items: list of ``{"item_id": int, "qty": int}``
         menu_df: Menu_Items DataFrame
+        order_source: "voice" | "manual" | "online"
+        created_at: override timestamp (used by seed)
 
     Returns:
-        Order confirmation dict with ``order_id``, ``status``,
-        ``total_price``, and ``items``.
+        Order confirmation dict.
     """
     global _order_counter
 
@@ -131,11 +176,13 @@ def create_order(items: list[dict], menu_df: pd.DataFrame) -> dict:
             continue
         unit_price = float(row.iloc[0]["price"])
         item_name = str(row.iloc[0]["item_name"])
+        category = str(row.iloc[0].get("category", ""))
         line_total = unit_price * line["qty"]
         total_price += line_total
         line_items.append({
             "item_id": int(line["item_id"]),
             "item_name": item_name,
+            "category": category,
             "qty": line["qty"],
             "unit_price": unit_price,
             "line_total": round(line_total, 2),
@@ -145,9 +192,50 @@ def create_order(items: list[dict], menu_df: pd.DataFrame) -> dict:
         _order_counter += 1
         order_id = _order_counter
 
-    return {
+    order = {
         "order_id": order_id,
         "status": "confirmed",
         "total_price": round(total_price, 2),
+        "order_source": order_source,
+        "created_at": (created_at or datetime.utcnow()).isoformat(),
         "items": line_items,
     }
+
+    _store_order(order)
+    return order
+
+
+# ---------------------------------------------------------------------------
+# Seed realistic orders for demo / testing
+# ---------------------------------------------------------------------------
+
+def seed_demo_orders(menu_df: pd.DataFrame, count: int = 25) -> list[dict]:
+    """Generate *count* realistic demo orders with varied items, qtys, and timestamps."""
+    clear_orders()
+
+    if menu_df.empty:
+        return []
+
+    ids = menu_df["item_id"].tolist()
+    sources = ["voice", "manual", "online"]
+    now = datetime.utcnow()
+
+    seeded: list[dict] = []
+    for i in range(count):
+        n_items = random.randint(1, 4)
+        chosen_ids = random.sample(ids, min(n_items, len(ids)))
+        items = [{"item_id": int(cid), "qty": random.randint(1, 3)} for cid in chosen_ids]
+        offset_hours = random.randint(0, 7 * 24)
+        ts = now - timedelta(hours=offset_hours)
+        source = random.choice(sources)
+
+        order = create_order(items, menu_df, order_source=source, created_at=ts)
+        if random.random() < 0.15:
+            order["status"] = "preparing"
+        elif random.random() < 0.10:
+            order["status"] = "pending"
+        elif random.random() < 0.6:
+            order["status"] = "completed"
+        seeded.append(order)
+
+    return seeded
