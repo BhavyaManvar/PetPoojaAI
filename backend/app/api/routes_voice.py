@@ -9,6 +9,8 @@ from app.models.voice_models import (
     VoiceParsedResponse,
     VoiceOrderResponse,
     VoicePipelineResponse,
+    VoiceChatResponse,
+    VoiceChatItem,
     ResolvedItem,
     PosPayload,
     PosItem,
@@ -73,5 +75,69 @@ async def voice_pipeline(
             order_id=order["order_id"],
             items=[PosItem(item_id=r["item_id"], qty=r["qty"]) for r in resolved],
         ),
+        language=language,
+    )
+
+
+@router.post("/chat", response_model=VoiceChatResponse)
+async def voice_chat(
+    payload: VoiceInput,
+    dfs: dict[str, pd.DataFrame] = Depends(get_dataframes),
+):
+    """Parse voice text, match items, and return with prices — without creating an order.
+
+    This endpoint powers the interactive chat-based ordering flow.
+    """
+    intent = detect_intent(payload.text)
+    language = detect_language(payload.text)
+
+    if intent == "CONFIRM_ORDER":
+        return VoiceChatResponse(
+            intent=intent,
+            items=[],
+            message="Order confirmed! Processing now.",
+            language=language,
+        )
+
+    if intent == "REMOVE_ITEM":
+        return VoiceChatResponse(
+            intent=intent,
+            items=[],
+            message="Which item would you like to remove?",
+            language=language,
+        )
+
+    parsed = parse_voice_text(payload.text, include_confidence=True)
+    resolved = resolve_items(parsed, dfs["menu"])
+
+    menu_df = dfs["menu"]
+    chat_items: list[VoiceChatItem] = []
+    for r in resolved:
+        row = menu_df.loc[menu_df["item_id"] == r["item_id"]]
+        unit_price = float(row.iloc[0]["price"]) if not row.empty else 0.0
+        confidence = 0.0
+        for p in parsed:
+            if p.get("item") == r["item_name"]:
+                confidence = p.get("confidence", 0.0)
+                break
+        chat_items.append(VoiceChatItem(
+            item_id=r["item_id"],
+            item_name=r["item_name"],
+            qty=r["qty"],
+            unit_price=unit_price,
+            line_total=round(unit_price * r["qty"], 2),
+            confidence=confidence,
+        ))
+
+    if chat_items:
+        summary = ", ".join(f"{i.qty}x {i.item_name} (₹{i.line_total:.0f})" for i in chat_items)
+        message = f"Added {summary} to your order. Anything else?"
+    else:
+        message = "Sorry, I couldn't find that on the menu. Could you try again?"
+
+    return VoiceChatResponse(
+        intent=intent,
+        items=chat_items,
+        message=message,
         language=language,
     )

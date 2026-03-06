@@ -2,23 +2,21 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Send, Volume2, ShoppingCart, Sparkles, X, Check } from "lucide-react";
+import { Mic, MicOff, Send, Volume2, ShoppingCart, X, Check } from "lucide-react";
 import {
   parseVoiceInput,
+  placeOrderViaBackend,
   sarvamSTT,
   sarvamTTS,
   type VoiceOrderState,
   type VoiceOrderItem,
 } from "@/services/voiceService";
-import { createOrder } from "@/services/orderService";
 import { formatCurrency } from "@/utils/helpers";
-import { getMenuItems, type MenuItemDoc } from "@/services/menuService";
 
 export default function VoiceCopilotPage() {
   const [orderState, setOrderState] = useState<VoiceOrderState>({
     intent: "order",
     items: [],
-    upsell_suggestion: null,
     message: "",
     order_status: "in_progress",
   });
@@ -27,7 +25,6 @@ export default function VoiceCopilotPage() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [menuItems, setMenuItems] = useState<MenuItemDoc[]>([]);
   const [transcriptHistory, setTranscriptHistory] = useState<
     { role: "user" | "assistant"; text: string }[]
   >([
@@ -38,10 +35,6 @@ export default function VoiceCopilotPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    getMenuItems().then(setMenuItems).catch(console.error);
-  }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -148,44 +141,32 @@ export default function VoiceCopilotPage() {
 
   const placeOrder = async (items: VoiceOrderItem[]) => {
     try {
-      const orderItems = items.map((i) => {
-        const menuItem = menuItems.find(
-          (m) => m.name.toLowerCase() === i.name.toLowerCase()
-        );
-        return {
-          name: i.name,
-          quantity: i.quantity,
-          price: menuItem?.price || 0,
-          modifiers: i.modifiers,
-        };
-      });
-
-      const total = orderItems.reduce((s, i) => s + i.price * i.quantity, 0);
-
-      await createOrder({
-        items: orderItems,
-        total,
-        order_source: "voice",
-        status: "confirmed",
-      });
+      const result = await placeOrderViaBackend(items);
 
       setOrderPlaced(true);
+      setTranscriptHistory((prev) => [
+        ...prev,
+        { role: "assistant", text: `Order #${result.order_id} placed! Total: ₹${result.total_price}` },
+      ]);
       setTimeout(() => {
         setOrderPlaced(false);
         setOrderState({
           intent: "order",
           items: [],
-          upsell_suggestion: null,
           message: "",
           order_status: "in_progress",
         });
         setTranscriptHistory((prev) => [
           ...prev,
-          { role: "assistant", text: "Order placed successfully! Ready for the next order." },
+          { role: "assistant", text: "Ready for the next order." },
         ]);
       }, 3000);
     } catch (err) {
       console.error(err);
+      setTranscriptHistory((prev) => [
+        ...prev,
+        { role: "assistant", text: "Failed to place order. Please try again." },
+      ]);
     }
   };
 
@@ -197,10 +178,7 @@ export default function VoiceCopilotPage() {
   };
 
   const orderTotal = orderState.items.reduce((total, item) => {
-    const menuItem = menuItems.find(
-      (m) => m.name.toLowerCase() === item.name.toLowerCase()
-    );
-    return total + (menuItem?.price || 0) * item.quantity;
+    return total + item.unit_price * item.quantity;
   }, 0);
 
   return (
@@ -360,10 +338,6 @@ export default function VoiceCopilotPage() {
               ) : (
                 <div className="space-y-2.5">
                   {orderState.items.map((item, i) => {
-                    const menuItem = menuItems.find(
-                      (m) => m.name.toLowerCase() === item.name.toLowerCase()
-                    );
-                    const price = menuItem?.price || 0;
                     return (
                       <motion.div
                         key={`${item.name}-${i}`}
@@ -380,20 +354,12 @@ export default function VoiceCopilotPage() {
                           <p className="text-sm font-medium text-text-primary truncate">
                             {item.name}
                           </p>
-                          {(item.modifiers.size || item.modifiers.spice_level || item.modifiers.addons.length > 0) && (
-                            <p className="text-[11px] text-text-muted truncate">
-                              {[
-                                item.modifiers.size,
-                                item.modifiers.spice_level,
-                                ...item.modifiers.addons,
-                              ]
-                                .filter(Boolean)
-                                .join(", ")}
-                            </p>
-                          )}
+                          <p className="text-[11px] text-text-muted">
+                            ₹{item.unit_price} each
+                          </p>
                         </div>
                         <span className="text-sm font-medium text-text-primary">
-                          {formatCurrency(price * item.quantity)}
+                          {formatCurrency(item.unit_price * item.quantity)}
                         </span>
                         <button
                           onClick={() => removeItem(i)}
@@ -432,37 +398,6 @@ export default function VoiceCopilotPage() {
               </>
             )}
           </div>
-
-          {/* Upsell Suggestion */}
-          <AnimatePresence>
-            {orderState.upsell_suggestion && (
-              <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="rounded-card border border-accent/20 bg-accent-muted p-5"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <Sparkles className="h-4 w-4 text-accent" />
-                  <h3 className="text-[13px] font-medium text-accent">
-                    Suggested Add-on
-                  </h3>
-                </div>
-                <p className="text-sm text-text-primary font-medium">
-                  {orderState.upsell_suggestion}
-                </p>
-                <p className="mt-1 text-xs text-text-muted">
-                  Based on popular combinations with your current order
-                </p>
-                <button
-                  onClick={() => processText(`add one ${orderState.upsell_suggestion}`)}
-                  className="mt-3 w-full rounded-lg border border-accent/30 py-2 text-sm font-medium text-accent hover:bg-accent/10 transition-colors"
-                >
-                  Add to Order
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
 
           {/* Transcript */}
           {transcript && (

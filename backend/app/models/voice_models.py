@@ -31,6 +31,8 @@ class ResolvedItem(BaseModel):
     item_id: int
     item_name: str
     qty: int
+    unit_price: float = 0.0
+    line_total: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -73,4 +75,22 @@ class VoicePipelineResponse(BaseModel):
     intent: str = Field(..., description="Detected intent: ORDER_ITEM | REMOVE_ITEM | CONFIRM_ORDER")
     items: list[ParsedItem]
     pos_payload: PosPayload
+    language: str = Field("en")
+
+
+class VoiceChatItem(BaseModel):
+    """A matched item with price info for the chat flow."""
+    item_id: int
+    item_name: str
+    qty: int
+    unit_price: float
+    line_total: float
+    confidence: float = 0.0
+
+
+class VoiceChatResponse(BaseModel):
+    """Response from /voice/chat — parse + price lookup without creating an order."""
+    intent: str = Field("ORDER_ITEM", description="Detected intent")
+    items: list[VoiceChatItem] = []
+    message: str = ""
     language: str = Field("en")

@@ -10,5 +10,6 @@ export const ENDPOINTS = {
   upsellForItem: (itemId: number) => `${API_BASE}/combos/upsell/for-item?item_id=${itemId}`,
   upsellBatch: `${API_BASE}/combos/upsell/batch`,
   voiceParse: `${API_BASE}/voice/parse`,
+  voiceChat: `${API_BASE}/voice/chat`,
   orderPush: `${API_BASE}/order/push`,
 } as const;

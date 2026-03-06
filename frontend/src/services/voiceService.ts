@@ -1,263 +1,140 @@
-import { getMenuItems, type MenuItemDoc } from "./menuService";
-import { getUpsellRules, type UpsellRule } from "./analyticsService";
+import { ENDPOINTS } from "./endpoints";
 
-// ── Voice Order JSON Schema ─────────────────────────────────────────────────
+// ── Voice Order Types ───────────────────────────────────────────────────────
 
 export interface VoiceOrderItem {
+  item_id: number;
   name: string;
   quantity: number;
-  modifiers: {
-    size: string | null;
-    spice_level: string | null;
-    addons: string[];
-  };
+  unit_price: number;
+  line_total: number;
+  confidence: number;
 }
 
 export interface VoiceOrderState {
-  intent: "order" | "clarification" | "confirmation";
+  intent: string;
   items: VoiceOrderItem[];
-  upsell_suggestion: string | null;
   message: string;
   order_status: "in_progress" | "confirmed" | "cancelled";
 }
 
-// ── Intent Detection (no AI API — pure logic) ──────────────────────────────
+// ── Backend Chat Response ───────────────────────────────────────────────────
 
-const CONFIRM_WORDS = [
-  "yes", "yeah", "yep", "confirm", "ok", "okay", "sure", "done",
-  "that's it", "place order", "go ahead", "correct", "right", "haan",
-];
-
-const CANCEL_WORDS = [
-  "no", "cancel", "remove", "stop", "nevermind", "nahi",
-];
-
-const CLARIFY_WORDS = [
-  "what", "which", "how much", "price", "do you have", "options",
-  "menu", "available", "tell me", "suggest",
-];
-
-const SIZE_WORDS: Record<string, string> = {
-  small: "small",
-  medium: "medium",
-  large: "large",
-  regular: "medium",
-  half: "small",
-  full: "large",
-};
-
-const SPICE_WORDS: Record<string, string> = {
-  mild: "mild",
-  medium: "medium",
-  spicy: "spicy",
-  "extra spicy": "extra_spicy",
-  "no spice": "none",
-  "less spice": "mild",
-};
-
-function detectIntent(text: string): "order" | "clarification" | "confirmation" {
-  const lower = text.toLowerCase().trim();
-
-  if (CONFIRM_WORDS.some((w) => lower.includes(w))) return "confirmation";
-  if (CLARIFY_WORDS.some((w) => lower.includes(w))) return "clarification";
-  return "order";
+interface BackendChatItem {
+  item_id: number;
+  item_name: string;
+  qty: number;
+  unit_price: number;
+  line_total: number;
+  confidence: number;
 }
 
-// ── Number Parsing ──────────────────────────────────────────────────────────
-
-const WORD_NUMBERS: Record<string, number> = {
-  one: 1, two: 2, three: 3, four: 4, five: 5,
-  six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-  ek: 1, do: 2, teen: 3, char: 4, panch: 5,
-  a: 1, an: 1,
-};
-
-function parseQuantity(text: string): number {
-  const match = text.match(/\d+/);
-  if (match) return parseInt(match[0], 10);
-
-  for (const [word, num] of Object.entries(WORD_NUMBERS)) {
-    if (text.toLowerCase().includes(word)) return num;
-  }
-  return 1;
+interface BackendChatResponse {
+  intent: string;
+  items: BackendChatItem[];
+  message: string;
+  language: string;
 }
 
-// ── Fuzzy Menu Matching ─────────────────────────────────────────────────────
-
-function similarity(a: string, b: string): number {
-  const la = a.toLowerCase();
-  const lb = b.toLowerCase();
-  if (la === lb) return 1;
-  if (la.includes(lb) || lb.includes(la)) return 0.8;
-
-  // Simple token overlap
-  const tokensA = la.split(/\s+/);
-  const tokensB = lb.split(/\s+/);
-  const intersection = tokensA.filter((t) => tokensB.includes(t));
-  const union = new Set([...tokensA, ...tokensB]);
-  return intersection.length / union.size;
-}
-
-function findBestMatch(
-  text: string,
-  menuItems: MenuItemDoc[]
-): MenuItemDoc | null {
-  let best: MenuItemDoc | null = null;
-  let bestScore = 0;
-
-  for (const mi of menuItems) {
-    const score = similarity(text, mi.name);
-    if (score > bestScore && score > 0.3) {
-      bestScore = score;
-      best = mi;
-    }
-  }
-  return best;
-}
-
-// ── Extract Modifiers ───────────────────────────────────────────────────────
-
-function extractModifiers(text: string): VoiceOrderItem["modifiers"] {
-  const lower = text.toLowerCase();
-  let size: string | null = null;
-  let spice_level: string | null = null;
-  const addons: string[] = [];
-
-  for (const [word, val] of Object.entries(SIZE_WORDS)) {
-    if (lower.includes(word)) {
-      size = val;
-      break;
-    }
-  }
-
-  for (const [word, val] of Object.entries(SPICE_WORDS)) {
-    if (lower.includes(word)) {
-      spice_level = val;
-      break;
-    }
-  }
-
-  const addonPatterns = [
-    "extra cheese", "cheese", "butter", "onion", "paneer",
-    "mushroom", "corn", "olives", "jalapeno",
-  ];
-  for (const addon of addonPatterns) {
-    if (lower.includes(addon)) addons.push(addon);
-  }
-
-  return { size, spice_level, addons };
-}
-
-// ── Main Voice Parser ───────────────────────────────────────────────────────
+// ── Main Parser — calls backend /voice/chat ─────────────────────────────────
 
 export async function parseVoiceInput(
   transcript: string,
   currentState?: VoiceOrderState
 ): Promise<VoiceOrderState> {
-  const intent = detectIntent(transcript);
-  const menuItems = await getMenuItems();
+  const res = await fetch(ENDPOINTS.voiceChat, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: transcript }),
+  });
+
+  if (!res.ok) {
+    return {
+      intent: "error",
+      items: currentState?.items || [],
+      message: "Something went wrong connecting to the server. Please try again.",
+      order_status: "in_progress",
+    };
+  }
+
+  const data: BackendChatResponse = await res.json();
 
   // Handle confirmation
-  if (intent === "confirmation") {
+  if (data.intent === "CONFIRM_ORDER") {
     if (currentState && currentState.items.length > 0) {
       return {
-        ...currentState,
         intent: "confirmation",
+        items: currentState.items,
         message: "Order confirmed! Processing your order now.",
         order_status: "confirmed",
       };
     }
     return {
       intent: "clarification",
-      items: currentState?.items || [],
-      upsell_suggestion: null,
+      items: [],
       message: "You haven't added any items yet. What would you like to order?",
       order_status: "in_progress",
     };
   }
 
-  // Handle clarification
-  if (intent === "clarification") {
-    const categories = [...new Set(menuItems.map((m) => m.category))];
+  // Handle remove intent
+  if (data.intent === "REMOVE_ITEM") {
     return {
-      intent: "clarification",
+      intent: "remove",
       items: currentState?.items || [],
-      upsell_suggestion: null,
-      message: `We have items in: ${categories.join(", ")}. What would you like?`,
+      message: data.message,
       order_status: "in_progress",
     };
   }
 
-  // Parse order items — split by "and" or commas
-  const segments = transcript
-    .split(/\band\b|,/i)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  // Map backend items to frontend format
+  const newItems: VoiceOrderItem[] = data.items.map((i) => ({
+    item_id: i.item_id,
+    name: i.item_name,
+    quantity: i.qty,
+    unit_price: i.unit_price,
+    line_total: i.line_total,
+    confidence: i.confidence,
+  }));
 
-  const newItems: VoiceOrderItem[] = [];
-
-  for (const segment of segments) {
-    const qty = parseQuantity(segment);
-    const match = findBestMatch(segment, menuItems);
-
-    if (match) {
-      const modifiers = extractModifiers(segment);
-      newItems.push({
-        name: match.name,
-        quantity: qty,
-        modifiers,
-      });
-    }
-  }
-
+  // Merge with existing items
   const allItems = [...(currentState?.items || [])];
-
-  // Merge or add new items
   for (const ni of newItems) {
-    const existing = allItems.find(
-      (e) => e.name.toLowerCase() === ni.name.toLowerCase()
-    );
+    const existing = allItems.find((e) => e.item_id === ni.item_id);
     if (existing) {
       existing.quantity += ni.quantity;
+      existing.line_total = existing.unit_price * existing.quantity;
     } else {
       allItems.push(ni);
     }
   }
 
-  // Generate upsell suggestion
-  let upsellSuggestion: string | null = null;
-  if (allItems.length > 0) {
-    try {
-      const rules = await getUpsellRules();
-      for (const item of allItems) {
-        const rule = rules.find(
-          (r) => r.base_item.toLowerCase() === item.name.toLowerCase()
-        );
-        if (rule && !allItems.find((a) => a.name.toLowerCase() === rule.suggested_item.toLowerCase())) {
-          upsellSuggestion = rule.suggested_item;
-          break;
-        }
-      }
-    } catch {
-      // Upsell is best-effort
-    }
-  }
-
-  const message =
-    newItems.length > 0
-      ? `Added ${newItems.map((i) => `${i.quantity}x ${i.name}`).join(", ")} to your order.${upsellSuggestion ? ` Would you also like to try ${upsellSuggestion}?` : " Anything else?"}`
-      : "I couldn't find that on the menu. Could you repeat your order?";
-
   return {
     intent: newItems.length > 0 ? "order" : "clarification",
     items: allItems,
-    upsell_suggestion: upsellSuggestion,
-    message,
+    message: data.message,
     order_status: "in_progress",
   };
 }
 
-// ── Sarvam AI Integration ───────────────────────────────────────────────────
+// ── Place Order via Backend ─────────────────────────────────────────────────
+
+export async function placeOrderViaBackend(
+  items: VoiceOrderItem[]
+): Promise<{ order_id: number; total_price: number }> {
+  const res = await fetch(ENDPOINTS.orderPush, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      items: items.map((i) => ({ item_id: i.item_id, qty: i.quantity })),
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Order failed: ${res.status}`);
+  return res.json();
+}
+
+// ── Sarvam AI Integration (kept for optional audio support) ─────────────────
 
 const SARVAM_API_BASE = "https://api.sarvam.ai";
 
