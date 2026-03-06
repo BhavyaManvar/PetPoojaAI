@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { motion } from "framer-motion";
 
-export default function LoginPage() {  const { signIn, user, loading, demoSignIn, demoMode } = useAuth();
+export default function LoginPage() {
+  const { signIn, user, appUser, loading, demoSignIn, demoMode } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,9 +16,15 @@ export default function LoginPage() {  const { signIn, user, loading, demoSignIn
 
   useEffect(() => {
     if (!loading && (user || demoMode)) {
-      router.replace("/dashboard");
+      // Role-based redirect
+      const role = appUser?.role;
+      if (role === "customer") {
+        router.replace("/order");
+      } else {
+        router.replace("/admin");
+      }
     }
-  }, [loading, user, demoMode, router]);
+  }, [loading, user, demoMode, appUser, router]);
 
   if (loading || user || demoMode) {
     return (
@@ -33,7 +41,7 @@ export default function LoginPage() {  const { signIn, user, loading, demoSignIn
 
     try {
       await signIn(email, password);
-      router.replace("/dashboard");
+      // redirect happens via useEffect after appUser loads
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Authentication failed";
       setError(msg.replace("Firebase: ", "").replace(/\(auth\/.*\)/, "").trim());
@@ -89,7 +97,7 @@ export default function LoginPage() {  const { signIn, user, loading, demoSignIn
             </div>
             <h2 className="text-xl font-semibold text-text-primary">Welcome back</h2>
             <p className="mt-1.5 text-sm text-text-muted">
-              Sign in to your restaurant dashboard
+              Sign in to your account
             </p>
           </div>
 
@@ -127,7 +135,9 @@ export default function LoginPage() {  const { signIn, user, loading, demoSignIn
               <div className="rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-600">
                 {error}
               </div>
-            )}            <button
+            )}
+
+            <button
               type="submit"
               disabled={submitting}
               className="w-full rounded-lg bg-btn py-2.5 text-sm font-medium text-white transition-colors hover:bg-btn-hover disabled:opacity-50"
@@ -146,14 +156,17 @@ export default function LoginPage() {  const { signIn, user, loading, demoSignIn
           </div>
 
           <button
-            onClick={() => { demoSignIn(); router.replace("/dashboard"); }}
-            className="w-full rounded-lg border-2 border-accent bg-accent/5 py-2.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10"
+            onClick={() => { demoSignIn(); }}
+            className="w-full rounded-lg border-2 border-accent bg-accent-muted py-2.5 text-sm font-medium text-text-primary transition-colors hover:bg-accent/10"
           >
-            🚀 Launch Demo Mode
+            Launch Demo Mode (Admin)
           </button>
 
-          <p className="mt-6 text-center text-xs text-text-muted">
-            Contact your administrator to get access credentials.
+          <p className="mt-6 text-center text-sm text-text-muted">
+            Don&apos;t have an account?{" "}
+            <Link href="/signup" className="text-text-primary font-medium hover:underline">
+              Sign up
+            </Link>
           </p>
         </motion.div>
       </div>

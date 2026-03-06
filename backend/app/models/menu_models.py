@@ -55,6 +55,23 @@ class RiskItemsResponse(BaseModel):
     risk_items: list[RiskItem]
 
 
+# ── Customer-facing menu item ────────────────────────────────────────
+
+class CustomerMenuItem(BaseModel):
+    item_id: int
+    item_name: str
+    category: str
+    price: float
+    is_veg: bool = True
+    is_available: bool = True
+    image_url: str = ""
+
+
+class CustomerMenuResponse(BaseModel):
+    items: list[CustomerMenuItem]
+    categories: list[str]
+
+
 # ── KPI ──────────────────────────────────────────────────────────────
 
 class TopItem(BaseModel):

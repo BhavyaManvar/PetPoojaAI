@@ -2,9 +2,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api";
 
 export const ENDPOINTS = {
   kpis: `${API_BASE}/kpis`,
+  menuItems: `${API_BASE}/menu/items`,
   menuInsights: `${API_BASE}/menu/insights`,
-  hiddenStars: `${API_BASE}/menu/hidden-stars`,
-  riskItems: `${API_BASE}/menu/risk-items`,
   topCombos: `${API_BASE}/combos/top`,
   basketStats: `${API_BASE}/combos/basket-stats`,
   upsellForItem: (itemId: number) => `${API_BASE}/combos/upsell/for-item?item_id=${itemId}`,
@@ -12,9 +11,9 @@ export const ENDPOINTS = {
   upsellClearHistory: `${API_BASE}/combos/upsell/clear-history`,
   priceRecommendations: `${API_BASE}/price/recommendations`,
   priceSummary: `${API_BASE}/price/summary`,
-  voiceParse: `${API_BASE}/voice/parse`,  voiceChat: `${API_BASE}/voice/chat`,
+  voiceChat: `${API_BASE}/voice/chat`,
   orderPush: `${API_BASE}/order/push`,
   orderList: `${API_BASE}/order/list`,
-  orderById: (id: number) => `${API_BASE}/order/${id}`,
   orderSeed: `${API_BASE}/order/seed`,
+  aiChat: `${API_BASE}/ai/chat`,
 } as const;

@@ -6,7 +6,7 @@ data:
 
 # Start backend dev server
 backend:
-	cd backend && uvicorn app.main:app --reload --port 8000
+	cd backend && python -m uvicorn app.main:app --reload --port 8000
 
 # Start frontend dev server
 frontend:
@@ -18,7 +18,7 @@ test:
 
 # Build and start via Docker Compose
 docker:
-	docker-compose up --build
+	docker compose up --build
 
 # Lint backend code
 lint:
@@ -39,6 +39,6 @@ install:
 
 # Remove generated files
 clean:
-	rm -f data/petpooja_dataset.xlsx
+	rm -f data/restaurant_ai_hybrid_dataset.xlsx
 	rm -rf frontend/.next frontend/node_modules
 	rm -rf backend/__pycache__ backend/app/__pycache__

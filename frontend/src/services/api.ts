@@ -1,6 +1,6 @@
 import { ENDPOINTS } from "./endpoints";
-import type { KPIData, Combo, UpsellResult, VoiceParseResponse, OrderResponse, OrderLineItem, TopCombosResponse, PriceRecommendation, PriceSummary } from "@/types/order";
-import type { MenuItem, HiddenStar, RiskItem } from "@/types/menu";
+import type { KPIData, Combo, UpsellResult, OrderResponse, OrderLineItem, TopCombosResponse, PriceRecommendation, PriceSummary } from "@/types/order";
+import type { MenuItem, CustomerMenuItem } from "@/types/menu";
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -8,6 +8,14 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
   return res.json();
+}
+
+// ── Customer Menu ───────────────────────────────────────────────────────────────
+export async function fetchMenuItems(category?: string): Promise<{ items: CustomerMenuItem[]; categories: string[] }> {
+  const url = category
+    ? `${ENDPOINTS.menuItems}?category=${encodeURIComponent(category)}`
+    : ENDPOINTS.menuItems;
+  return fetchJSON(url);
 }
 
 // ── KPIs ────────────────────────────────────────────────────────────────────────
@@ -19,16 +27,6 @@ export function fetchKPIs(): Promise<KPIData> {
 export async function fetchMenuInsights(): Promise<MenuItem[]> {
   const data = await fetchJSON<{ items: MenuItem[] }>(ENDPOINTS.menuInsights);
   return data.items;
-}
-
-export async function fetchHiddenStars(): Promise<HiddenStar[]> {
-  const data = await fetchJSON<{ hidden_stars: HiddenStar[] }>(ENDPOINTS.hiddenStars);
-  return data.hidden_stars;
-}
-
-export async function fetchRiskItems(): Promise<RiskItem[]> {
-  const data = await fetchJSON<{ risk_items: RiskItem[] }>(ENDPOINTS.riskItems);
-  return data.risk_items;
 }
 
 // ── Combos & Upsell ─────────────────────────────────────────────────────────────
@@ -52,6 +50,7 @@ export async function fetchUpsellBatch(itemIds: number[]): Promise<UpsellResult[
   return data.results;
 }
 
+<<<<<<< HEAD
 export async function clearUpsellHistory(itemId?: number): Promise<void> {
   const url = itemId != null
     ? `${ENDPOINTS.upsellClearHistory}?item_id=${itemId}`
@@ -68,6 +67,8 @@ export function parseVoice(text: string): Promise<VoiceParseResponse> {
   });
 }
 
+=======
+>>>>>>> 54bd492d1df787c1d39cb29647c46b35c276724e
 // ── Price Optimization ──────────────────────────────────────────────────────────
 export async function fetchPriceRecommendations(opts?: {
   category?: string;
@@ -107,12 +108,6 @@ export async function fetchOrders(limit = 50): Promise<{
   total: number;
 }> {
   return fetchJSON(ENDPOINTS.orderList + `?limit=${limit}`);
-}
-
-export async function fetchOrderById(
-  id: number
-): Promise<OrderResponse & { order_source?: string; created_at?: string }> {
-  return fetchJSON(ENDPOINTS.orderById(id));
 }
 
 export async function seedOrders(count = 25): Promise<{ seeded: number; message: string }> {

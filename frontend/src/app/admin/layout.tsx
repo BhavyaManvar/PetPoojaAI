@@ -2,18 +2,22 @@
 
 import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, Suspense } from "react";
 import { Sidebar } from "@/components/sidebar";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading, demoMode } = useAuth();
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const { user, loading, demoMode, appUser } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
     if (!loading && !user && !demoMode) {
       router.replace("/login");
     }
-  }, [user, loading, demoMode, router]);
+    // Redirect customers to user app
+    if (!loading && appUser && appUser.role === "customer") {
+      router.replace("/order");
+    }
+  }, [user, loading, demoMode, appUser, router]);
 
   if (loading) {
     return (
@@ -33,7 +37,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <main className="flex-1 overflow-auto">
         <div className="mx-auto max-w-[1400px] p-6 lg:p-8">
-          {children}
+          <Suspense fallback={
+            <div className="flex min-h-[60vh] items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-surface-border border-t-accent" />
+            </div>
+          }>
+            {children}
+          </Suspense>
         </div>
       </main>
     </div>
