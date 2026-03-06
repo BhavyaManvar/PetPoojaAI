@@ -12,6 +12,7 @@ export const ENDPOINTS = {
   priceRecommendations: `${API_BASE}/price/recommendations`,
   priceSummary: `${API_BASE}/price/summary`,
   voiceChat: `${API_BASE}/voice/chat`,
+  voiceParse: `${API_BASE}/voice/parse`,
   orderPush: `${API_BASE}/order/push`,
   orderList: `${API_BASE}/order/list`,
   orderSeed: `${API_BASE}/order/seed`,

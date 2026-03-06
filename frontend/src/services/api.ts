@@ -1,5 +1,5 @@
 import { ENDPOINTS } from "./endpoints";
-import type { KPIData, Combo, UpsellResult, OrderResponse, OrderLineItem, TopCombosResponse, PriceRecommendation, PriceSummary } from "@/types/order";
+import type { KPIData, Combo, UpsellResult, OrderResponse, OrderLineItem, TopCombosResponse, PriceRecommendation, PriceSummary, VoiceParseResponse } from "@/types/order";
 import type { MenuItem, CustomerMenuItem } from "@/types/menu";
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -50,7 +50,6 @@ export async function fetchUpsellBatch(itemIds: number[]): Promise<UpsellResult[
   return data.results;
 }
 
-<<<<<<< HEAD
 export async function clearUpsellHistory(itemId?: number): Promise<void> {
   const url = itemId != null
     ? `${ENDPOINTS.upsellClearHistory}?item_id=${itemId}`
@@ -67,8 +66,6 @@ export function parseVoice(text: string): Promise<VoiceParseResponse> {
   });
 }
 
-=======
->>>>>>> 54bd492d1df787c1d39cb29647c46b35c276724e
 // ── Price Optimization ──────────────────────────────────────────────────────────
 export async function fetchPriceRecommendations(opts?: {
   category?: string;
