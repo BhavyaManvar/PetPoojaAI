@@ -503,167 +503,171 @@ def format_recommendation_message(selected_item: tuple, recommended_item: tuple)
 
 # ── Dataset Generation (Orders, Voice, Excel) ──────────────────────────────────
 
-CITIES = ["Ahmedabad", "Mumbai", "Delhi", "Bangalore", "Pune", "Jaipur", "Hyderabad", "Chennai"]
-OUTLETS = {c: list(range(i * 2 + 1, i * 2 + 3)) for i, c in enumerate(CITIES)}
-PAYMENT_MODES = ["UPI", "Cash", "Card", "Wallet"]
-ORDER_TYPES = ["Dine-in", "Takeaway", "Delivery"]
+def generate_dataset():
+    """Generate the full Excel dataset. Only runs when called explicitly."""
+    CITIES = ["Ahmedabad", "Mumbai", "Delhi", "Bangalore", "Pune", "Jaipur", "Hyderabad", "Chennai"]
+    OUTLETS = {c: list(range(i * 2 + 1, i * 2 + 3)) for i, c in enumerate(CITIES)}
+    PAYMENT_MODES = ["UPI", "Cash", "Card", "Wallet"]
+    ORDER_TYPES = ["Dine-in", "Takeaway", "Delivery"]
 
-MENU_COLUMNS = ["item_id", "item_name", "category", "price", "cost", "profit", "sales", "is_available"]
-menu_df = pd.DataFrame(ITEMS, columns=MENU_COLUMNS)
+    MENU_COLUMNS = ["item_id", "item_name", "category", "price", "cost", "profit", "sales", "is_available"]
+    menu_df = pd.DataFrame(ITEMS, columns=MENU_COLUMNS)
 
-NUM_ORDERS = 1000
-BASE_DATE = datetime(2025, 1, 1)
+    NUM_ORDERS = 1000
+    BASE_DATE = datetime(2025, 1, 1)
 
-order_rows = []
-order_item_rows = []
-order_item_id = 1
+    order_rows = []
+    order_item_rows = []
+    order_item_id = 1
 
-for oid in range(1001, 1001 + NUM_ORDERS):
-    city = random.choice(CITIES)
-    outlet_id = random.choice(OUTLETS[city])
-    order_date = BASE_DATE + timedelta(
-        days=random.randint(0, 180),
-        hours=random.randint(10, 22),
-        minutes=random.randint(0, 59),
-    )
+    for oid in range(1001, 1001 + NUM_ORDERS):
+        city = random.choice(CITIES)
+        outlet_id = random.choice(OUTLETS[city])
+        order_date = BASE_DATE + timedelta(
+            days=random.randint(0, 180),
+            hours=random.randint(10, 22),
+            minutes=random.randint(0, 59),
+        )
 
-    n_items = random.choices([1, 2, 3, 4], weights=[15, 40, 30, 15])[0]
-    chosen_ids: set[int] = set()
+        n_items = random.choices([1, 2, 3, 4], weights=[15, 40, 30, 15])[0]
+        chosen_ids: set[int] = set()
 
-    # Use compatibility mapping to create natural pairings
-    if random.random() < 0.4 and n_items >= 2:
-        main = random.choice(ITEMS)
-        compatible_cats = COMPATIBILITY.get(main[2], [])
-        if compatible_cats:
-            companions = [i for i in ITEMS if i[2] in compatible_cats and i[7]]
-            if companions:
-                chosen_ids.add(main[0])
-                chosen_ids.add(random.choice(companions)[0])
+        # Use compatibility mapping to create natural pairings
+        if random.random() < 0.4 and n_items >= 2:
+            main = random.choice(ITEMS)
+            compatible_cats = COMPATIBILITY.get(main[2], [])
+            if compatible_cats:
+                companions = [i for i in ITEMS if i[2] in compatible_cats and i[7]]
+                if companions:
+                    chosen_ids.add(main[0])
+                    chosen_ids.add(random.choice(companions)[0])
 
-    while len(chosen_ids) < n_items:
-        chosen_ids.add(random.choice(ITEMS)[0])
+        while len(chosen_ids) < n_items:
+            chosen_ids.add(random.choice(ITEMS)[0])
 
-    total_amount = 0.0
-    for item_id in chosen_ids:
-        itm = item_lookup[item_id]
-        qty = random.choices([1, 2, 3], weights=[60, 30, 10])[0]
-        line_total = itm[3] * qty
-        total_amount += line_total
-        order_item_rows.append({
-            "order_item_id": order_item_id,
+        total_amount = 0.0
+        for item_id in chosen_ids:
+            itm = item_lookup[item_id]
+            qty = random.choices([1, 2, 3], weights=[60, 30, 10])[0]
+            line_total = itm[3] * qty
+            total_amount += line_total
+            order_item_rows.append({
+                "order_item_id": order_item_id,
+                "order_id": oid,
+                "item_id": item_id,
+                "item_name": itm[1],
+                "quantity": qty,
+                "unit_price": itm[3],
+                "line_total": line_total,
+            })
+            order_item_id += 1
+
+        order_rows.append({
             "order_id": oid,
-            "item_id": item_id,
-            "item_name": itm[1],
-            "quantity": qty,
-            "unit_price": itm[3],
-            "line_total": line_total,
+            "customer_id": random.randint(500, 999),
+            "order_date": order_date.strftime("%Y-%m-%d %H:%M:%S"),
+            "city": city,
+            "outlet_id": outlet_id,
+            "total_amount": total_amount,
+            "payment_mode": random.choice(PAYMENT_MODES),
+            "order_type": random.choice(ORDER_TYPES),
         })
-        order_item_id += 1
 
-    order_rows.append({
-        "order_id": oid,
-        "customer_id": random.randint(500, 999),
-        "order_date": order_date.strftime("%Y-%m-%d %H:%M:%S"),
-        "city": city,
-        "outlet_id": outlet_id,
-        "total_amount": total_amount,
-        "payment_mode": random.choice(PAYMENT_MODES),
-        "order_type": random.choice(ORDER_TYPES),
-    })
+    orders_df = pd.DataFrame(order_rows)
+    order_items_df = pd.DataFrame(order_item_rows)
 
-orders_df = pd.DataFrame(order_rows)
-order_items_df = pd.DataFrame(order_item_rows)
+    # ── Sales Analytics ─────────────────────────────────────────────────────────────
+    sales_agg = (
+        order_items_df
+        .groupby(["item_id", "item_name"])
+        .agg(total_qty_sold=("quantity", "sum"), total_revenue=("line_total", "sum"))
+        .reset_index()
+    )
+    sales_agg = sales_agg.merge(menu_df[["item_id", "cost", "category"]], on="item_id", how="left")
+    sales_agg["total_cost"] = sales_agg["total_qty_sold"] * sales_agg["cost"]
+    sales_agg["contribution_margin"] = sales_agg["total_revenue"] - sales_agg["total_cost"]
+    sales_agg["margin_pct"] = (sales_agg["contribution_margin"] / sales_agg["total_revenue"] * 100).round(1)
+    sales_agg["avg_daily_sales"] = (sales_agg["total_qty_sold"] / 180).round(1)
+    sales_agg = sales_agg[
+        ["item_id", "item_name", "total_qty_sold", "total_revenue", "total_cost",
+         "contribution_margin", "margin_pct", "avg_daily_sales", "category"]
+    ]
 
-# ── Sales Analytics ─────────────────────────────────────────────────────────────
-sales_agg = (
-    order_items_df
-    .groupby(["item_id", "item_name"])
-    .agg(total_qty_sold=("quantity", "sum"), total_revenue=("line_total", "sum"))
-    .reset_index()
-)
-sales_agg = sales_agg.merge(menu_df[["item_id", "cost", "category"]], on="item_id", how="left")
-sales_agg["total_cost"] = sales_agg["total_qty_sold"] * sales_agg["cost"]
-sales_agg["contribution_margin"] = sales_agg["total_revenue"] - sales_agg["total_cost"]
-sales_agg["margin_pct"] = (sales_agg["contribution_margin"] / sales_agg["total_revenue"] * 100).round(1)
-sales_agg["avg_daily_sales"] = (sales_agg["total_qty_sold"] / 180).round(1)
-sales_agg = sales_agg[
-    ["item_id", "item_name", "total_qty_sold", "total_revenue", "total_cost",
-     "contribution_margin", "margin_pct", "avg_daily_sales", "category"]
-]
+    # ── Voice Orders ────────────────────────────────────────────────────────────────
+    VOICE_TEMPLATES = [
+        ("one {a}", "en", [("{a}", 1)]),
+        ("two {a}", "en", [("{a}", 2)]),
+        ("three {a}", "en", [("{a}", 3)]),
+        ("one {a} and one {b}", "en", [("{a}", 1), ("{b}", 1)]),
+        ("one {a} and two {b}", "en", [("{a}", 1), ("{b}", 2)]),
+        ("two {a} and one {b}", "en", [("{a}", 2), ("{b}", 1)]),
+        ("one {a}, one {b} and one {c}", "en", [("{a}", 1), ("{b}", 1), ("{c}", 1)]),
+        ("I want {a}", "en", [("{a}", 1)]),
+        ("can I get {a}", "en", [("{a}", 1)]),
+        ("can I get one {a} and one {b}", "en", [("{a}", 1), ("{b}", 1)]),
+        ("please give me {a}", "en", [("{a}", 1)]),
+        ("add one {a} and one {b}", "en", [("{a}", 1), ("{b}", 1)]),
+        ("ek {a}", "hi", [("{a}", 1)]),
+        ("do {a}", "hi", [("{a}", 2)]),
+        ("teen {a}", "hi", [("{a}", 3)]),
+        ("ek {a} aur ek {b}", "hi", [("{a}", 1), ("{b}", 1)]),
+        ("do {a} aur ek {b}", "hi", [("{a}", 2), ("{b}", 1)]),
+        ("ek {a}, ek {b} aur ek {c}", "hi", [("{a}", 1), ("{b}", 1), ("{c}", 1)]),
+        ("mujhe ek {a} chahiye", "hi", [("{a}", 1)]),
+        ("mujhe ek {a} aur ek {b} chahiye", "hi", [("{a}", 1), ("{b}", 1)]),
+        ("ek {a} dena", "hinglish", [("{a}", 1)]),
+        ("do {a} dena", "hinglish", [("{a}", 2)]),
+        ("ek {a} aur ek {b} dena", "hinglish", [("{a}", 1), ("{b}", 1)]),
+        ("bhai ek {a} de do", "hinglish", [("{a}", 1)]),
+        ("bhai ek {a} aur ek {b} de do", "hinglish", [("{a}", 1), ("{b}", 1)]),
+        ("mujhe ek {a}, ek {b} aur ek {c} chahiye", "hinglish", [("{a}", 1), ("{b}", 1), ("{c}", 1)]),
+    ]
 
-# ── Voice Orders ────────────────────────────────────────────────────────────────
-VOICE_TEMPLATES = [
-    ("one {a}", "en", [("{a}", 1)]),
-    ("two {a}", "en", [("{a}", 2)]),
-    ("three {a}", "en", [("{a}", 3)]),
-    ("one {a} and one {b}", "en", [("{a}", 1), ("{b}", 1)]),
-    ("one {a} and two {b}", "en", [("{a}", 1), ("{b}", 2)]),
-    ("two {a} and one {b}", "en", [("{a}", 2), ("{b}", 1)]),
-    ("one {a}, one {b} and one {c}", "en", [("{a}", 1), ("{b}", 1), ("{c}", 1)]),
-    ("I want {a}", "en", [("{a}", 1)]),
-    ("can I get {a}", "en", [("{a}", 1)]),
-    ("can I get one {a} and one {b}", "en", [("{a}", 1), ("{b}", 1)]),
-    ("please give me {a}", "en", [("{a}", 1)]),
-    ("add one {a} and one {b}", "en", [("{a}", 1), ("{b}", 1)]),
-    ("ek {a}", "hi", [("{a}", 1)]),
-    ("do {a}", "hi", [("{a}", 2)]),
-    ("teen {a}", "hi", [("{a}", 3)]),
-    ("ek {a} aur ek {b}", "hi", [("{a}", 1), ("{b}", 1)]),
-    ("do {a} aur ek {b}", "hi", [("{a}", 2), ("{b}", 1)]),
-    ("ek {a}, ek {b} aur ek {c}", "hi", [("{a}", 1), ("{b}", 1), ("{c}", 1)]),
-    ("mujhe ek {a} chahiye", "hi", [("{a}", 1)]),
-    ("mujhe ek {a} aur ek {b} chahiye", "hi", [("{a}", 1), ("{b}", 1)]),
-    ("ek {a} dena", "hinglish", [("{a}", 1)]),
-    ("do {a} dena", "hinglish", [("{a}", 2)]),
-    ("ek {a} aur ek {b} dena", "hinglish", [("{a}", 1), ("{b}", 1)]),
-    ("bhai ek {a} de do", "hinglish", [("{a}", 1)]),
-    ("bhai ek {a} aur ek {b} de do", "hinglish", [("{a}", 1), ("{b}", 1)]),
-    ("mujhe ek {a}, ek {b} aur ek {c} chahiye", "hinglish", [("{a}", 1), ("{b}", 1), ("{c}", 1)]),
-]
+    voice_rows = []
+    for vid in range(1, 201):
+        template, lang, slots = random.choice(VOICE_TEMPLATES)
+        sample_items = random.sample(ITEMS, min(len(slots), len(ITEMS)))
+        raw = template
+        parsed_items = []
+        for i, (placeholder, qty) in enumerate(slots):
+            if i < len(sample_items):
+                name = sample_items[i][1]
+                raw = raw.replace(placeholder, name.lower())
+                parsed_items.append({"item": name, "qty": qty})
+        voice_rows.append({
+            "voice_id": vid,
+            "raw_text": raw,
+            "language": lang,
+            "parsed_items": json.dumps(parsed_items),
+            "is_valid": True,
+            "timestamp": (BASE_DATE + timedelta(
+                days=random.randint(0, 180), hours=random.randint(10, 22)
+            )).strftime("%Y-%m-%d %H:%M:%S"),
+        })
 
-voice_rows = []
-for vid in range(1, 201):
-    template, lang, slots = random.choice(VOICE_TEMPLATES)
-    sample_items = random.sample(ITEMS, min(len(slots), len(ITEMS)))
-    raw = template
-    parsed_items = []
-    for i, (placeholder, qty) in enumerate(slots):
-        if i < len(sample_items):
-            name = sample_items[i][1]
-            raw = raw.replace(placeholder, name.lower())
-            parsed_items.append({"item": name, "qty": qty})
-    voice_rows.append({
-        "voice_id": vid,
-        "raw_text": raw,
-        "language": lang,
-        "parsed_items": json.dumps(parsed_items),
-        "is_valid": True,
-        "timestamp": (BASE_DATE + timedelta(
-            days=random.randint(0, 180), hours=random.randint(10, 22)
-        )).strftime("%Y-%m-%d %H:%M:%S"),
-    })
+    voice_df = pd.DataFrame(voice_rows)
 
-voice_df = pd.DataFrame(voice_rows)
+    # ── Write Excel ─────────────────────────────────────────────────────────────────
+    out = Path(__file__).resolve().parent / "restaurant_ai_hybrid_dataset.xlsx"
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        menu_df.to_excel(writer, sheet_name="Menu_Items", index=False)
+        orders_df.to_excel(writer, sheet_name="Orders", index=False)
+        order_items_df.to_excel(writer, sheet_name="Order_Items", index=False)
+        sales_agg.to_excel(writer, sheet_name="Sales_Analytics", index=False)
+        voice_df.to_excel(writer, sheet_name="Voice_Orders", index=False)
 
-# ── Write Excel ─────────────────────────────────────────────────────────────────
-out = Path(__file__).resolve().parent / "restaurant_ai_hybrid_dataset.xlsx"
-with pd.ExcelWriter(out, engine="openpyxl") as writer:
-    menu_df.to_excel(writer, sheet_name="Menu_Items", index=False)
-    orders_df.to_excel(writer, sheet_name="Orders", index=False)
-    order_items_df.to_excel(writer, sheet_name="Order_Items", index=False)
-    sales_agg.to_excel(writer, sheet_name="Sales_Analytics", index=False)
-    voice_df.to_excel(writer, sheet_name="Voice_Orders", index=False)
-
-print(f"Dataset written to {out}")
-print(f"  Menu_Items:      {len(menu_df)} rows")
-print(f"  Orders:          {len(orders_df)} rows")
-print(f"  Order_Items:     {len(order_items_df)} rows")
-print(f"  Sales_Analytics: {len(sales_agg)} rows")
-print(f"  Voice_Orders:    {len(voice_df)} rows")
+    print(f"Dataset written to {out}")
+    print(f"  Menu_Items:      {len(menu_df)} rows")
+    print(f"  Orders:          {len(orders_df)} rows")
+    print(f"  Order_Items:     {len(order_items_df)} rows")
+    print(f"  Sales_Analytics: {len(sales_agg)} rows")
+    print(f"  Voice_Orders:    {len(voice_df)} rows")
 
 
 # ── Demo / Test Block ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    generate_dataset()
+
     # Unseed so the demo shows real variety each run
     random.seed()
 

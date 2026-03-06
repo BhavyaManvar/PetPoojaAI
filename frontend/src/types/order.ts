@@ -37,6 +37,12 @@ export interface UpsellResult {
   confidence?: number;
   lift?: number;
   margin?: number;
+  score?: number;
+  recommended_category?: string;
+  price?: number;
+  profit?: number;
+  sales?: number;
+  message?: string;
 }
 
 export interface ParsedVoiceItem {

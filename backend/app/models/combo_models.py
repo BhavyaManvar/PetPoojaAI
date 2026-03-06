@@ -39,7 +39,13 @@ class UpsellResult(BaseModel):
     strategy: str | None = Field(None, description="Which strategy produced this recommendation")
     confidence: float | None = Field(None, description="Association rule confidence (combo strategies)")
     lift: float | None = Field(None, description="Association rule lift (combo strategies)")
-    margin: float | None = Field(None, description="Contribution margin (hidden_star strategy)")
+    margin: float | None = Field(None, description="Contribution margin / profit")
+    score: float | None = Field(None, description="Composite recommendation score")
+    recommended_category: str | None = Field(None, description="Category of recommended item")
+    price: float | None = Field(None, description="Price of recommended item")
+    profit: float | None = Field(None, description="Profit of recommended item")
+    sales: int | None = Field(None, description="Sales count of recommended item")
+    message: str | None = Field(None, description="Human-readable recommendation message")
 
 
 class UpsellBatchRequest(BaseModel):

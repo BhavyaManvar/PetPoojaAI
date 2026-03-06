@@ -1,30 +1,56 @@
-"""Upsell Engine — recommend add-ons for a given menu item.
+"""Upsell Engine — intelligent recommendation engine for menu items.
 
-Strategies (in priority order):
-  1. Cross-category combo: items from a *different* category frequently ordered together
-  2. Same-category combo: frequently co-purchased from the same category
-  3. Hidden-star promotion: high-margin items that need sales lift
-  4. Popular-addon fallback: most-ordered item not already in the basket
+Hard rules:
+  1. Candidate must NOT be from the same category as selected item.
+  2. Candidate must be from a COMPATIBLE category only.
+  3. Candidate must be available.
+  4. Prioritise: high profit (index 5) + low sales (index 6).
+  5. Every call returns a different recommendation until cooldown expires.
 """
 
 from __future__ import annotations
 
+import random
+from pathlib import Path
+from typing import Any
+
 import pandas as pd
 
-from app.services.combo_engine import get_top_combos
-from app.services.revenue_engine import find_hidden_stars
+# ── Import ITEMS and recommendation logic from data layer ───────────────────────
+import sys
+
+_DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+if str(_DATA_DIR) not in sys.path:
+    sys.path.insert(0, str(_DATA_DIR))
+
+from generate_dataset import (  # noqa: E402
+    ITEMS,
+    COMPATIBILITY,
+    item_lookup,
+    get_compatible_categories,
+    filter_candidate_items,
+    normalize_scores,
+    _batch_score_candidates,
+    weighted_pick_top_candidates,
+    update_history,
+    format_recommendation_message,
+    WEIGHT_PROFIT,
+    WEIGHT_LOW_SALES,
+    WEIGHT_AFFORDABILITY,
+    REPEAT_PENALTY,
+    PRICE_FIT_LOW,
+    PRICE_FIT_HIGH,
+)
+
+# ── Per-session in-memory history (resets on server restart) ────────────────────
+# Maps selected_item_id → list of recently recommended item_ids
+_recommendation_history: dict[int, list[int]] = {}
 
 
-# ── Category Mapping Helper ─────────────────────────────────────────────────────
+def _find_item_tuple(item_id: int, menu_df: pd.DataFrame | None = None) -> tuple | None:
+    """Find the item tuple from ITEMS by item_id."""
+    return item_lookup.get(item_id)
 
-def _build_category_map(menu_df: pd.DataFrame) -> dict[str, str]:
-    """Return {item_name: category} lookup."""
-    if menu_df.empty:
-        return {}
-    return dict(zip(menu_df["item_name"], menu_df["category"]))
-
-
-# ── Core Upsell Logic ───────────────────────────────────────────────────────────
 
 def recommend_addon(
     item_id: int,
@@ -34,77 +60,69 @@ def recommend_addon(
 ) -> dict:
     """Return the best upsell recommendation for *item_id*.
 
-    Response keys:
-        item               — source item name
-        recommended_addon  — suggested add-on name (or None)
-        addon_id           — item_id of the add-on (or None)
-        strategy           — which strategy matched
-        confidence         — association rule confidence (if combo-based)
-        lift               — association rule lift (if combo-based)
-        margin             — contribution margin (if hidden-star strategy)
+    Uses the scoring engine from generate_dataset.py which enforces:
+    - compatible category only (COMPATIBILITY map)
+    - different category from selected
+    - high profit + low sales priority
+    - anti-repeat: different recommendation each time until cooldown
+    - weighted random pick from top-5 candidates for variety
     """
-    row = menu_df.loc[menu_df["item_id"] == item_id]
-    if row.empty:
-        return {"item": "Unknown", "recommended_addon": None, "addon_id": None, "strategy": None}
+    selected = _find_item_tuple(item_id)
+    if not selected:
+        return {
+            "item": "Unknown",
+            "recommended_addon": None,
+            "addon_id": None,
+            "strategy": None,
+            "score": None,
+            "recommended_category": None,
+            "price": None,
+            "profit": None,
+            "sales": None,
+            "message": None,
+        }
 
-    item_name: str = row.iloc[0]["item_name"]
-    item_category: str = row.iloc[0].get("category", "")
-    cat_map = _build_category_map(menu_df)
-    id_map: dict[str, int] = dict(zip(menu_df["item_name"], menu_df["item_id"]))
+    candidates = filter_candidate_items(selected, ITEMS)
+    if not candidates:
+        return {
+            "item": selected[1],
+            "recommended_addon": None,
+            "addon_id": None,
+            "strategy": "no_compatible_items",
+            "score": None,
+            "recommended_category": None,
+            "price": None,
+            "profit": None,
+            "sales": None,
+            "message": None,
+        }
 
-    combos = get_top_combos(order_items_df, top_n=100)
+    # Score all candidates with anti-repeat history
+    scored = _batch_score_candidates(selected, candidates, _recommendation_history)
 
-    # Strategy 1 — Cross-category combo (e.g., pizza → coke, burger → fries)
-    for combo in combos:
-        ant, cons = combo["antecedent"], combo["consequent"]
-        if item_name == ant:
-            addon_cat = cat_map.get(cons, "")
-            if addon_cat and addon_cat != item_category:
-                return _combo_result(item_name, cons, id_map, combo, "cross_category_combo")
-        if item_name == cons:
-            addon_cat = cat_map.get(ant, "")
-            if addon_cat and addon_cat != item_category:
-                return _combo_result(item_name, ant, id_map, combo, "cross_category_combo")
+    # Weighted random pick from top 5
+    chosen_tuple, chosen_score = weighted_pick_top_candidates(scored, top_k=5)
 
-    # Strategy 2 — Same-category combo fallback
-    for combo in combos:
-        ant, cons = combo["antecedent"], combo["consequent"]
-        if item_name == ant:
-            return _combo_result(item_name, cons, id_map, combo, "same_category_combo")
-        if item_name == cons:
-            return _combo_result(item_name, ant, id_map, combo, "same_category_combo")
+    # Record in history (auto-evicts after 5 cycles)
+    update_history(_recommendation_history, selected[0], chosen_tuple[0])
 
-    # Strategy 3 — Hidden star promotion
-    stars = find_hidden_stars(menu_df, order_items_df, sales_df)
-    if stars:
-        top_star = stars[0]
-        if top_star["item"] != item_name:
-            return {
-                "item": item_name,
-                "recommended_addon": top_star["item"],
-                "addon_id": top_star.get("item_id"),
-                "strategy": "hidden_star_promotion",
-                "margin": top_star["margin"],
-            }
+    message = format_recommendation_message(selected, chosen_tuple)
 
-    # Strategy 4 — Popular addon fallback (most ordered item that isn't this one)
-    if not order_items_df.empty:
-        popular = (
-            order_items_df[order_items_df["item_name"] != item_name]
-            .groupby("item_name")["quantity"]
-            .sum()
-            .sort_values(ascending=False)
-        )
-        if not popular.empty:
-            addon_name = popular.index[0]
-            return {
-                "item": item_name,
-                "recommended_addon": addon_name,
-                "addon_id": id_map.get(addon_name),
-                "strategy": "popular_addon",
-            }
-
-    return {"item": item_name, "recommended_addon": None, "addon_id": None, "strategy": None}
+    return {
+        "item": selected[1],
+        "recommended_addon": chosen_tuple[1],
+        "addon_id": chosen_tuple[0],
+        "strategy": "smart_upsell",
+        "confidence": None,
+        "lift": None,
+        "margin": chosen_tuple[5],
+        "score": round(chosen_score, 4),
+        "recommended_category": chosen_tuple[2],
+        "price": chosen_tuple[3],
+        "profit": chosen_tuple[5],
+        "sales": chosen_tuple[6],
+        "message": message,
+    }
 
 
 def recommend_addons_batch(
@@ -120,20 +138,9 @@ def recommend_addons_batch(
     ]
 
 
-# ── Private Helpers ─────────────────────────────────────────────────────────────
-
-def _combo_result(
-    item_name: str,
-    addon_name: str,
-    id_map: dict[str, int],
-    combo: dict,
-    strategy: str,
-) -> dict:
-    return {
-        "item": item_name,
-        "recommended_addon": addon_name,
-        "addon_id": id_map.get(addon_name),
-        "strategy": strategy,
-        "confidence": combo.get("confidence"),
-        "lift": combo.get("lift"),
-    }
+def clear_history(item_id: int | None = None) -> None:
+    """Clear recommendation history. If item_id given, clear only that item."""
+    if item_id is not None:
+        _recommendation_history.pop(item_id, None)
+    else:
+        _recommendation_history.clear()

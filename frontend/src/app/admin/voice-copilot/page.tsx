@@ -11,6 +11,7 @@ import {
   type VoiceOrderState,
   type VoiceOrderItem,
 } from "@/services/voiceService";
+import { clearUpsellHistory } from "@/services/api";
 import { formatCurrency } from "@/utils/helpers";
 
 export default function VoiceCopilotPage() {
@@ -143,6 +144,7 @@ export default function VoiceCopilotPage() {
   const placeOrder = async (items: VoiceOrderItem[]) => {
     try {
       const result = await placeOrderViaBackend(items);
+      clearUpsellHistory().catch(() => {}); // Reset AI suggestion history for next order
 
       setOrderPlaced(true);
       setTranscriptHistory((prev) => [

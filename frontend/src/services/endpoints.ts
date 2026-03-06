@@ -8,6 +8,7 @@ export const ENDPOINTS = {
   basketStats: `${API_BASE}/combos/basket-stats`,
   upsellForItem: (itemId: number) => `${API_BASE}/combos/upsell/for-item?item_id=${itemId}`,
   upsellBatch: `${API_BASE}/combos/upsell/batch`,
+  upsellClearHistory: `${API_BASE}/combos/upsell/clear-history`,
   priceRecommendations: `${API_BASE}/price/recommendations`,
   priceSummary: `${API_BASE}/price/summary`,
   voiceChat: `${API_BASE}/voice/chat`,
