@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Send, Check, Plus, X, Sparkles, LogIn } from 'lucide-react';
+import { Mic, MicOff, Send, Check, Plus, X, Sparkles, LogIn, Volume2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { API, formatCurrency } from '@/lib/api';
@@ -10,6 +10,164 @@ import {
   type VoiceOrderItem,
   type VoiceUpsellSuggestion,
 } from '@/services/voiceService';
+
+const SARVAM_API_KEY = import.meta.env.VITE_SARVAM_API_KEY || '';
+const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || '';
+
+/** Convert a webm/ogg Blob from MediaRecorder into WAV PCM 16-bit 16 kHz mono */
+async function toWavBlob(blob: Blob): Promise<Blob> {
+  const arrayBuf = await blob.arrayBuffer();
+  const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+  const decoded = await audioCtx.decodeAudioData(arrayBuf);
+  const pcm = decoded.getChannelData(0); // mono
+  const numSamples = pcm.length;
+  const buffer = new ArrayBuffer(44 + numSamples * 2);
+  const view = new DataView(buffer);
+  const writeStr = (off: number, s: string) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + numSamples * 2, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 16000, true);
+  view.setUint32(28, 32000, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, numSamples * 2, true);
+  for (let i = 0; i < numSamples; i++) {
+    const s = Math.max(-1, Math.min(1, pcm[i]));
+    view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  audioCtx.close();
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+/** Send audio to Sarvam STT and return the transcript */
+async function sarvamSTT(wavBlob: Blob): Promise<string> {
+  const fd = new FormData();
+  fd.append('file', wavBlob, 'audio.wav');
+  fd.append('model', 'saaras:v3');
+  fd.append('language_code', 'unknown');
+  fd.append('with_timestamps', 'false');
+  const res = await fetch('https://api.sarvam.ai/speech-to-text', {
+    method: 'POST',
+    headers: { 'api-subscription-key': SARVAM_API_KEY },
+    body: fd,
+  });
+  if (!res.ok) throw new Error(`STT ${res.status}`);
+  const data = await res.json();
+  return data.transcript || '';
+}
+
+/** Detect if text contains non-Latin characters (Hindi, Gujarati, etc.) */
+function isNonLatin(text: string): boolean {
+  return /[^\u0000-\u007F]/.test(text);
+}
+
+/** Translate any Indic text to English using Sarvam translate API */
+async function sarvamTranslate(text: string): Promise<string> {
+  if (!SARVAM_API_KEY || !text.trim()) return text;
+  const res = await fetch('https://api.sarvam.ai/translate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-subscription-key': SARVAM_API_KEY,
+    },
+    body: JSON.stringify({
+      input: text,
+      source_language_code: 'auto',
+      target_language_code: 'en-IN',
+      model: 'mayura:v1',
+    }),
+  });
+  if (!res.ok) return text; // fallback to original
+  const data = await res.json();
+  return data.translated_text || text;
+}
+
+/** Send order to n8n webhook for AI processing */
+async function sendToN8n(englishText: string, cart: VoiceOrderItem[], sessionId: string): Promise<any> {
+  if (!N8N_WEBHOOK_URL) throw new Error('No n8n URL');
+  const res = await fetch(N8N_WEBHOOK_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      transcript: englishText,
+      cart: JSON.stringify(cart.map(i => ({ id: i.item_id, name: i.name, qty: i.quantity }))),
+      session_id: sessionId,
+    }),
+  });
+  if (!res.ok) throw new Error(`n8n ${res.status}`);
+  return res.json();
+}
+
+/** Send text to Sarvam TTS and play the resulting audio */
+async function sarvamTTS(text: string): Promise<void> {
+  if (!text || !SARVAM_API_KEY) return;
+  const res = await fetch('https://api.sarvam.ai/text-to-speech', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'api-subscription-key': SARVAM_API_KEY,
+    },
+    body: JSON.stringify({
+      target_language_code: 'en-IN',
+      speaker: 'priya',
+      model: 'bulbul:v3',
+      text: text,
+    }),
+  });
+  if (!res.ok) return;
+  const data = await res.json();
+  if (data.audios?.[0]) {
+    const audio = new Audio(`data:audio/wav;base64,${data.audios[0]}`);
+    audio.play().catch(() => {});
+  }
+}
+
+/** Core order processing: translate if needed → n8n (with backend fallback) */
+async function processOrderText(
+  rawText: string,
+  currentCart: VoiceOrderItem[],
+  sessionId: string,
+): Promise<{ items: VoiceOrderItem[]; upsells: VoiceUpsellSuggestion[]; message: string }> {
+  // Step 1: Translate to English if text is in Devanagari/non-Latin script
+  const englishText = isNonLatin(rawText) ? await sarvamTranslate(rawText) : rawText;
+
+  // Step 2: Try n8n first, fall back to direct backend
+  let result: { items: VoiceOrderItem[]; upsells: VoiceUpsellSuggestion[] };
+  try {
+    const n8nRes = await sendToN8n(englishText, currentCart, sessionId);
+    // n8n should return same format as backend /voice/chat
+    if (n8nRes?.items?.length > 0) {
+      result = {
+        items: n8nRes.items.map((i: any) => ({
+          item_id: i.item_id,
+          name: i.item_name || i.name,
+          quantity: i.qty || i.quantity || 1,
+          unit_price: i.unit_price || 0,
+          line_total: i.line_total || (i.unit_price || 0) * (i.qty || i.quantity || 1),
+          confidence: i.confidence || 80,
+        })),
+        upsells: n8nRes.upsells ?? [],
+      };
+    } else {
+      throw new Error('n8n returned no items');
+    }
+  } catch {
+    // Fallback: direct backend call with English text
+    result = await parseVoiceInput(englishText);
+  }
+
+  const message = result.items.length > 0
+    ? `Added ${result.items.map(i => `${i.quantity} ${i.name}`).join(', ')} to your order.`
+    : "Sorry, I couldn't find that on the menu. Could you try again?";
+
+  return { ...result, message };
+}
 
 // Category → emoji + color for combo cards
 const CATEGORY_STYLE: Record<
@@ -74,6 +232,7 @@ export default function VoiceOrderPage() {
   const [loading, setLoading] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [orderId, setOrderId] = useState<number | null>(null);
+  const [sessionId] = useState(() => crypto.randomUUID());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -91,20 +250,64 @@ export default function VoiceOrderPage() {
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) chunksRef.current.push(e.data);
       };
-      mediaRecorder.onstop = () => stream.getTracks().forEach((t) => t.stop());
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        if (chunksRef.current.length === 0) return;
+        const webmBlob = new Blob(chunksRef.current, { type: mediaRecorder.mimeType });
+        setLoading(true);
+        try {
+          const wavBlob = await toWavBlob(webmBlob);
+          const transcript = await sarvamSTT(wavBlob);
+          if (transcript.trim()) {
+            setText(transcript);
+            // Process through translate → n8n → backend flow
+            const result = await processOrderText(transcript, cartItems, sessionId);
+            if (result.items.length > 0) {
+              setCartItems((prev) => {
+                const updated = [...prev];
+                for (const ni of result.items) {
+                  const existing = updated.find((e) => e.item_id === ni.item_id);
+                  if (existing) {
+                    existing.quantity += ni.quantity;
+                    existing.line_total = existing.unit_price * existing.quantity;
+                  } else {
+                    updated.push(ni);
+                  }
+                }
+                return updated;
+              });
+              setPrimaryItemId(result.items[0].item_id);
+              const upsells = (result.upsells ?? []).filter((u) => u.recommended_addon);
+              setSuggestions(upsells);
+              setCurrentSuggIdx(0);
+              setTotalSaved(0);
+              setSuggestionsFinished(false);
+            }
+            sarvamTTS(result.message);
+          }
+        } catch (err) {
+          console.error('Voice processing error:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
       mediaRecorder.start();
       setIsRecording(true);
     } catch {
       // Microphone not available
     }
-  }, [isRecording]);
+  }, [isRecording, cartItems, sessionId]);
 
   const handleParse = async () => {
     if (!text.trim()) return;
     setLoading(true);
     try {
-      const result = await parseVoiceInput(text);
-      if (result.items.length === 0) return;
+      // Process through translate → n8n → backend flow
+      const result = await processOrderText(text, cartItems, sessionId);
+      if (result.items.length === 0) {
+        sarvamTTS(result.message);
+        return;
+      }
 
       // Merge into cart
       setCartItems((prev) => {
@@ -124,12 +327,15 @@ export default function VoiceOrderPage() {
       const pid = result.items[0].item_id;
       setPrimaryItemId(pid);
 
-      // Use all suggestions returned by /voice/chat (one per compatible category)
+      // Use all suggestions returned
       const upsells = (result.upsells ?? []).filter((u) => u.recommended_addon);
       setSuggestions(upsells);
       setCurrentSuggIdx(0);
       setTotalSaved(0);
       setSuggestionsFinished(false);
+
+      // Speak confirmation
+      sarvamTTS(result.message);
     } catch {
       // parse error
     } finally {
@@ -256,10 +462,10 @@ export default function VoiceOrderPage() {
             </button>
             <div className="flex-1">
               <p className="text-sm font-medium text-zomato-dark">
-                {isRecording ? 'Listening...' : 'Tap to speak'}
+                {loading ? 'Processing voice...' : isRecording ? 'Listening...' : 'Tap to speak'}
               </p>
               <p className="text-xs text-zomato-gray">
-                {isRecording ? 'Tap again to stop' : 'Or type your order below'}
+                {loading ? 'Converting speech to order' : isRecording ? 'Tap again to stop' : 'Or type your order below'}
               </p>
             </div>
             {isRecording && (
