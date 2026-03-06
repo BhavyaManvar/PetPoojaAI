@@ -6,14 +6,14 @@ import { useEffect } from "react";
 import { Sidebar } from "@/components/sidebar";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, demoMode } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (!loading && !user && !demoMode) {
       router.replace("/login");
     }
-  }, [user, loading, router]);
+  }, [user, loading, demoMode, router]);
 
   if (loading) {
     return (
@@ -26,7 +26,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!user) return null;
+  if (!user && !demoMode) return null;
 
   return (
     <div className="flex min-h-screen">

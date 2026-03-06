@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, MicOff, Send, Volume2, ShoppingCart, X, Check } from "lucide-react";
+import { Mic, MicOff, Send, Volume2, ShoppingCart, X, Check, Zap } from "lucide-react";
 import {
   parseVoiceInput,
   placeOrderViaBackend,
@@ -17,6 +17,7 @@ export default function VoiceCopilotPage() {
   const [orderState, setOrderState] = useState<VoiceOrderState>({
     intent: "order",
     items: [],
+    upsells: [],
     message: "",
     order_status: "in_progress",
   });
@@ -153,6 +154,7 @@ export default function VoiceCopilotPage() {
         setOrderState({
           intent: "order",
           items: [],
+          upsells: [],
           message: "",
           order_status: "in_progress",
         });
@@ -397,7 +399,46 @@ export default function VoiceCopilotPage() {
                 </button>
               </>
             )}
-          </div>
+          </div>          {/* AI Upsell Suggestions */}
+          {orderState.upsells.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-card border border-accent/20 bg-accent/5 p-5"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Zap className="h-4 w-4 text-accent" />
+                <h3 className="text-[13px] font-semibold text-accent">AI Suggestions</h3>
+              </div>
+              <div className="space-y-2">
+                {orderState.upsells.map((u, i) => (
+                  <button
+                    key={i}
+                    onClick={() =>
+                      u.recommended_addon &&
+                      processText(`add one ${u.recommended_addon}`)
+                    }
+                    className="w-full flex items-center gap-3 rounded-lg border border-surface-border bg-surface-card p-3 text-left hover:border-accent/40 transition-colors"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent text-xs font-bold">
+                      +1
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-text-primary truncate">
+                        {u.recommended_addon}
+                      </p>
+                      <p className="text-[11px] text-text-muted truncate">{u.reason}</p>
+                    </div>
+                    {u.addon_price != null && (
+                      <span className="text-sm font-medium text-text-secondary shrink-0">
+                        {formatCurrency(u.addon_price)}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          )}
 
           {/* Transcript */}
           {transcript && (

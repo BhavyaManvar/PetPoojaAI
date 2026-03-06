@@ -11,9 +11,19 @@ export interface VoiceOrderItem {
   confidence: number;
 }
 
+export interface VoiceUpsellSuggestion {
+  item_name: string;
+  recommended_addon: string | null;
+  addon_id: number | null;
+  addon_price: number | null;
+  strategy: string | null;
+  reason: string;
+}
+
 export interface VoiceOrderState {
   intent: string;
   items: VoiceOrderItem[];
+  upsells: VoiceUpsellSuggestion[];
   message: string;
   order_status: "in_progress" | "confirmed" | "cancelled";
 }
@@ -32,6 +42,7 @@ interface BackendChatItem {
 interface BackendChatResponse {
   intent: string;
   items: BackendChatItem[];
+  upsells?: VoiceUpsellSuggestion[];
   message: string;
   language: string;
 }
@@ -47,24 +58,24 @@ export async function parseVoiceInput(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text: transcript }),
   });
-
   if (!res.ok) {
     return {
       intent: "error",
       items: currentState?.items || [],
+      upsells: [],
       message: "Something went wrong connecting to the server. Please try again.",
       order_status: "in_progress",
     };
   }
 
   const data: BackendChatResponse = await res.json();
-
   // Handle confirmation
   if (data.intent === "CONFIRM_ORDER") {
     if (currentState && currentState.items.length > 0) {
       return {
         intent: "confirmation",
         items: currentState.items,
+        upsells: [],
         message: "Order confirmed! Processing your order now.",
         order_status: "confirmed",
       };
@@ -72,6 +83,7 @@ export async function parseVoiceInput(
     return {
       intent: "clarification",
       items: [],
+      upsells: [],
       message: "You haven't added any items yet. What would you like to order?",
       order_status: "in_progress",
     };
@@ -82,6 +94,7 @@ export async function parseVoiceInput(
     return {
       intent: "remove",
       items: currentState?.items || [],
+      upsells: [],
       message: data.message,
       order_status: "in_progress",
     };
@@ -108,10 +121,10 @@ export async function parseVoiceInput(
       allItems.push(ni);
     }
   }
-
   return {
     intent: newItems.length > 0 ? "order" : "clarification",
     items: allItems,
+    upsells: data.upsells ?? [],
     message: data.message,
     order_status: "in_progress",
   };
@@ -124,9 +137,9 @@ export async function placeOrderViaBackend(
 ): Promise<{ order_id: number; total_price: number }> {
   const res = await fetch(ENDPOINTS.orderPush, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+    headers: { "Content-Type": "application/json" },    body: JSON.stringify({
       items: items.map((i) => ({ item_id: i.item_id, qty: i.quantity })),
+      order_source: "voice",
     }),
   });
 
@@ -139,6 +152,12 @@ export async function placeOrderViaBackend(
 const SARVAM_API_BASE = "https://api.sarvam.ai";
 
 export async function sarvamSTT(audioBlob: Blob): Promise<string> {
+  const apiKey = process.env.NEXT_PUBLIC_SARVAM_API_KEY;
+  if (!apiKey) {
+    console.warn("Sarvam API key not set — skipping STT");
+    return "";
+  }
+
   const formData = new FormData();
   formData.append("file", audioBlob, "audio.wav");
   formData.append("language_code", "hi-IN");
@@ -147,7 +166,7 @@ export async function sarvamSTT(audioBlob: Blob): Promise<string> {
   const res = await fetch(`${SARVAM_API_BASE}/speech-to-text`, {
     method: "POST",
     headers: {
-      "API-Subscription-Key": process.env.NEXT_PUBLIC_SARVAM_API_KEY || "",
+      "API-Subscription-Key": apiKey,
     },
     body: formData,
   });
@@ -158,11 +177,17 @@ export async function sarvamSTT(audioBlob: Blob): Promise<string> {
 }
 
 export async function sarvamTTS(text: string): Promise<Blob> {
+  const apiKey = process.env.NEXT_PUBLIC_SARVAM_API_KEY;
+  if (!apiKey) {
+    console.warn("Sarvam API key not set — skipping TTS");
+    return new Blob();
+  }
+
   const res = await fetch(`${SARVAM_API_BASE}/text-to-speech`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "API-Subscription-Key": process.env.NEXT_PUBLIC_SARVAM_API_KEY || "",
+      "API-Subscription-Key": apiKey,
     },
     body: JSON.stringify({
       inputs: [text],

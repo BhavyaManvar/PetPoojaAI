@@ -1,5 +1,5 @@
 import { ENDPOINTS } from "./endpoints";
-import type { KPIData, Combo, UpsellResult, VoiceParseResponse, OrderResponse, OrderLineItem, TopCombosResponse } from "@/types/order";
+import type { KPIData, Combo, UpsellResult, VoiceParseResponse, OrderResponse, OrderLineItem, TopCombosResponse, PriceRecommendation, PriceSummary } from "@/types/order";
 import type { MenuItem, HiddenStar, RiskItem } from "@/types/menu";
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -61,11 +61,57 @@ export function parseVoice(text: string): Promise<VoiceParseResponse> {
   });
 }
 
+// ── Price Optimization ──────────────────────────────────────────────────────────
+export async function fetchPriceRecommendations(opts?: {
+  category?: string;
+  action?: string;
+  priority?: string;
+}): Promise<PriceRecommendation[]> {
+  const params = new URLSearchParams();
+  if (opts?.category) params.set("category", opts.category);
+  if (opts?.action) params.set("action", opts.action);
+  if (opts?.priority) params.set("priority", opts.priority);
+  const qs = params.toString();
+  const url = qs ? `${ENDPOINTS.priceRecommendations}?${qs}` : ENDPOINTS.priceRecommendations;
+  const data = await fetchJSON<{ recommendations: PriceRecommendation[] }>(url);
+  return data.recommendations;
+}
+
+export function fetchPriceSummary(): Promise<PriceSummary> {
+  return fetchJSON<PriceSummary>(ENDPOINTS.priceSummary);
+}
+
+// ── Basket Stats ────────────────────────────────────────────────────────────────
+export async function fetchBasketStats() {
+  return fetchJSON<import("@/types/order").BasketStats>(ENDPOINTS.basketStats);
+}
+
 // ── Orders ──────────────────────────────────────────────────────────────────────
-export function pushOrder(items: OrderLineItem[]): Promise<OrderResponse> {
+export function pushOrder(items: OrderLineItem[], orderSource = "manual"): Promise<OrderResponse> {
   return fetchJSON<OrderResponse>(ENDPOINTS.orderPush, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, order_source: orderSource }),
+  });
+}
+
+export async function fetchOrders(limit = 50): Promise<{
+  orders: (OrderResponse & { order_source?: string; created_at?: string })[];
+  total: number;
+}> {
+  return fetchJSON(ENDPOINTS.orderList + `?limit=${limit}`);
+}
+
+export async function fetchOrderById(
+  id: number
+): Promise<OrderResponse & { order_source?: string; created_at?: string }> {
+  return fetchJSON(ENDPOINTS.orderById(id));
+}
+
+export async function seedOrders(count = 25): Promise<{ seeded: number; message: string }> {
+  return fetchJSON(ENDPOINTS.orderSeed, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ count }),
   });
 }

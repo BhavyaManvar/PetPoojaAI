@@ -9,7 +9,11 @@ export const ENDPOINTS = {
   basketStats: `${API_BASE}/combos/basket-stats`,
   upsellForItem: (itemId: number) => `${API_BASE}/combos/upsell/for-item?item_id=${itemId}`,
   upsellBatch: `${API_BASE}/combos/upsell/batch`,
-  voiceParse: `${API_BASE}/voice/parse`,
-  voiceChat: `${API_BASE}/voice/chat`,
+  priceRecommendations: `${API_BASE}/price/recommendations`,
+  priceSummary: `${API_BASE}/price/summary`,
+  voiceParse: `${API_BASE}/voice/parse`,  voiceChat: `${API_BASE}/voice/chat`,
   orderPush: `${API_BASE}/order/push`,
+  orderList: `${API_BASE}/order/list`,
+  orderById: (id: number) => `${API_BASE}/order/${id}`,
+  orderSeed: `${API_BASE}/order/seed`,
 } as const;

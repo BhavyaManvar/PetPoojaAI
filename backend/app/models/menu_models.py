@@ -71,3 +71,38 @@ class KPIResponse(BaseModel):
     revenue_by_city: dict[str, float]
     revenue_by_order_type: dict[str, float]
     top_items: list[TopItem]
+
+
+# ── Price Optimization ───────────────────────────────────────────────
+
+class PriceRecommendation(BaseModel):
+    item_id: int
+    item_name: str
+    category: str
+    current_price: float
+    cost: float
+    current_margin_pct: float
+    category_avg_price: float
+    category_avg_margin_pct: float
+    total_qty_sold: int
+    sales_velocity: float
+    suggested_price: float
+    price_change: float
+    price_change_pct: float
+    action: str  # increase | decrease | keep
+    reason: str
+    priority: str  # high | medium | low
+    projected_monthly_uplift: float
+
+
+class PriceRecommendationsResponse(BaseModel):
+    recommendations: list[PriceRecommendation]
+
+
+class PriceSummaryResponse(BaseModel):
+    total_items: int
+    items_to_increase: int
+    items_to_decrease: int
+    items_optimal: int
+    total_monthly_uplift: float
+    avg_margin_pct: float

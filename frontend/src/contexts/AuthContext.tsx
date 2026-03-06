@@ -50,8 +50,10 @@ interface AuthContextType {
   user: User | null;
   appUser: AppUser | null;
   loading: boolean;
+  demoMode: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  demoSignIn: () => void;
   addStaffMember: (email: string, password: string, name: string) => Promise<void>;
   getStaffMembers: () => Promise<StaffMember[]>;
   deleteStaffMember: (staffId: string) => Promise<void>;
@@ -63,6 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [demoMode, setDemoMode] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(getAuth(), async (firebaseUser) => {
@@ -89,6 +92,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     await signInWithEmailAndPassword(getAuth(), email, password);
+  };
+
+  const demoSignIn = () => {
+    setDemoMode(true);
+    setAppUser({
+      id: "demo-user",
+      name: "Demo Admin",
+      email: "demo@petpooja.ai",
+      role: "admin",
+      createdAt: new Date(),
+    });
+    setLoading(false);
   };
 
   // Admin-only: create a staff member's Firestore record.
@@ -164,6 +179,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const signOut = async () => {
+    if (demoMode) {
+      setDemoMode(false);
+      setAppUser(null);
+      return;
+    }
     await firebaseSignOut(getAuth());
     setAppUser(null);
   };
@@ -174,8 +194,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         appUser,
         loading,
+        demoMode,
         signIn,
         signOut,
+        demoSignIn,
         addStaffMember,
         getStaffMembers,
         deleteStaffMember,
