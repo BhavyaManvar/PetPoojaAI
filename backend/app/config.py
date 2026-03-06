@@ -14,7 +14,7 @@ class Settings:
     DATA_FILE: str = os.getenv("DATA_FILE", "restaurant_ai_hybrid_dataset.xlsx")
 
     ALLOWED_ORIGINS: list[str] = [
-        o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001").split(",") if o.strip()
+        o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:3001,http://localhost:5173").split(",") if o.strip()
     ]
     ALLOWED_METHODS: list[str] = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
     ALLOWED_HEADERS: list[str] = ["Content-Type", "Authorization", "Accept"]

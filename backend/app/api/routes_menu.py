@@ -2,7 +2,6 @@
 
 from fastapi import APIRouter, Depends, Query
 import pandas as pd
-from urllib.parse import quote
 
 from app.dependencies import get_dataframes
 from app.models.menu_models import (
@@ -15,35 +14,59 @@ from app.services.revenue_engine import classify_menu_items, find_hidden_stars, 
 
 router = APIRouter()
 
-# ── Deterministic food image (Unsplash source — free, no API key) ────
-_CATEGORY_PHOTOS: dict[str, str] = {
-    "pizza": "pizza",
-    "burger": "burger",
-    "sides": "fries",
-    "south indian": "dosa",
-    "breads": "naan-bread",
-    "beverages": "drinks",
-    "main course": "curry",
-    "rice": "fried-rice",
-    "desserts": "dessert",
-    "starters": "appetizer",
-    "soups": "soup",
-    "combo": "food-platter",
-    "chinese": "noodles",
-    "italian": "pasta",
-    "grill": "grilled-food",
-    "middle eastern": "falafel",
-    "street food": "street-food",
-    "sandwich": "sandwich",
-    "wraps": "wrap",
+# ── Foodish API images — real food photos, deterministic per item ────
+_FOODISH_MAP: dict[str, tuple[str, int]] = {
+    # category -> (foodish_category, max_images)
+    "pizza": ("pizza", 9),
+    "burger": ("burger", 9),
+    "south indian": ("dosa", 9),
+    "breads": ("dosa", 9),
+    "beverages": ("rice", 9),
+    "main course": ("butter-chicken", 9),
+    "rice": ("rice", 9),
+    "desserts": ("dessert", 9),
+    "starters": ("samosa", 9),
+    "soups": ("rice", 9),
+    "combo": ("biryani", 9),
+    "chinese": ("pasta", 9),
+    "italian": ("pasta", 9),
+    "grill": ("burger", 9),
+    "middle eastern": ("biryani", 9),
+    "street food": ("samosa", 9),
+    "sandwich": ("burger", 9),
+    "wraps": ("dosa", 9),
+    "sides": ("samosa", 9),
+    "biryani": ("biryani", 9),
+    "idli": ("idly", 9),
 }
 
 
 def _image_url(item_name: str, category: str, item_id: int) -> str:
-    """Generate a deterministic placeholder image URL for a menu item."""
-    keyword = _CATEGORY_PHOTOS.get(category.lower(), "food")
-    encoded = quote(f"{keyword} {item_name.split()[0]}")
-    return f"https://source.unsplash.com/400x300/?{encoded}&sig={item_id}"
+    """Generate a deterministic Foodish API image URL for a menu item."""
+    cat_key = category.lower()
+    name_lower = item_name.lower()
+
+    # Try to match by item name keywords first
+    name_overrides = {
+        "pizza": "pizza", "burger": "burger", "biryani": "biryani",
+        "dosa": "dosa", "idli": "idly", "idly": "idly",
+        "pasta": "pasta", "samosa": "samosa", "rice": "rice",
+        "dessert": "dessert", "cake": "dessert", "ice cream": "dessert",
+        "butter chicken": "butter-chicken", "chicken": "butter-chicken",
+        "paneer": "butter-chicken", "naan": "dosa",
+    }
+    foodish_cat = None
+    for keyword, fcat in name_overrides.items():
+        if keyword in name_lower:
+            foodish_cat = fcat
+            break
+
+    if not foodish_cat:
+        entry = _FOODISH_MAP.get(cat_key, ("biryani", 9))
+        foodish_cat = entry[0]
+
+    img_num = (item_id % 9) + 1
+    return f"https://foodish-api.com/images/{foodish_cat}/{foodish_cat}{img_num}.jpg"
 
 
 @router.get("/items", response_model=CustomerMenuResponse)

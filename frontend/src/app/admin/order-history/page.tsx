@@ -77,6 +77,8 @@ export default function OrderHistoryPage() {
 
   useEffect(() => {
     load();
+    const interval = setInterval(load, 10_000);
+    return () => clearInterval(interval);
   }, [load]);
 
   const handleSeed = async () => {
@@ -118,8 +120,12 @@ export default function OrderHistoryPage() {
       <div className="mb-8 flex items-start justify-between">
         <div>
           <h1 className="text-xl font-semibold text-text-primary">Order History</h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Live orders from the backend store&nbsp;·&nbsp;
+          <p className="mt-1 flex items-center gap-2 text-sm text-text-muted">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+            </span>
+            Live · auto-refreshes every 10 s&nbsp;·&nbsp;
             <span className="font-medium text-text-secondary">{total} total</span>
           </p>
         </div>
