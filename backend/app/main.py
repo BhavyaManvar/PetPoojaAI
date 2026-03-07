@@ -15,6 +15,7 @@ from app.api.routes_order import router as order_router
 from app.api.routes_price import router as price_router
 from app.api.routes_ai import router as ai_router
 from app.api.routes_auth import router as auth_router
+from app.api.routes_call import router as call_router
 from app.config import settings
 
 logging.basicConfig(
@@ -66,6 +67,7 @@ app.include_router(order_router, prefix="/order", tags=["Order / PoS"])
 app.include_router(price_router, prefix="/price", tags=["Price Optimization"])
 app.include_router(ai_router, prefix="/ai", tags=["AI Strategy & Insights"])
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
+app.include_router(call_router, prefix="/call", tags=["Phone Call Agent"])
 
 
 @app.get("/health")

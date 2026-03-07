@@ -32,6 +32,14 @@ class Settings:
     # Gemini AI
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 
+    # Twilio
+    TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+    TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+    TWILIO_PHONE_NUMBER: str = os.getenv("TWILIO_PHONE_NUMBER", "")
+
+    # Sarvam AI
+    SARVAM_API_KEY: str = os.getenv("SARVAM_API_KEY", "")
+
     # Rate limiting
     RATE_LIMIT: str = os.getenv("RATE_LIMIT", "60/minute")
 

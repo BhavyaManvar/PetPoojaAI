@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Send, Check, Plus, X, Sparkles, LogIn, Volume2 } from 'lucide-react';
+import { Mic, MicOff, Send, Check, Plus, X, Sparkles, LogIn, Volume2, Phone, PhoneCall, PhoneOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { API, formatCurrency } from '@/lib/api';
@@ -10,9 +10,20 @@ import {
   type VoiceOrderItem,
   type VoiceUpsellSuggestion,
 } from '@/services/voiceService';
+import Vapi from '@vapi-ai/web';
 
 const SARVAM_API_KEY = import.meta.env.VITE_SARVAM_API_KEY || '';
 const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || '';
+const VAPI_PUBLIC_KEY = import.meta.env.VITE_VAPI_PUBLIC_KEY || '';
+const VAPI_ASSISTANT_ID = import.meta.env.VITE_VAPI_ASSISTANT_ID || '';
+const PHONE_NUMBER = import.meta.env.VITE_PHONE_NUMBER || '';
+
+function formatPhoneDisplay(num: string): string {
+  if (num.startsWith('+1') && num.length === 12) {
+    return `+1 (${num.slice(2, 5)}) ${num.slice(5, 8)}-${num.slice(8)}`;
+  }
+  return num;
+}
 
 /** Convert a webm/ogg Blob from MediaRecorder into WAV PCM 16-bit 16 kHz mono */
 async function toWavBlob(blob: Blob): Promise<Blob> {
@@ -242,6 +253,92 @@ export default function VoiceOrderPage() {
   const isListeningRef = useRef(false);  // non-stale ref for callbacks
   const cartRef = useRef(cartItems);     // non-stale ref for cart in callbacks
   cartRef.current = cartItems;
+
+  // ── Vapi phone call state ──────────────────────────────────────────────
+  const vapiRef = useRef<Vapi | null>(null);
+  const vapiInitialized = useRef(false);
+  const [callActive, setCallActive] = useState(false);
+  const [callConnecting, setCallConnecting] = useState(false);
+  const [callStatus, setCallStatus] = useState('');
+  const [callTranscript, setCallTranscript] = useState<Array<{ role: string; text: string }>>([]);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!VAPI_PUBLIC_KEY) return;
+    // Guard against React StrictMode double-mount (causes KrispSDK duplicate + audio failure)
+    if (vapiInitialized.current) return;
+    vapiInitialized.current = true;
+
+    const vapi = new Vapi(VAPI_PUBLIC_KEY);
+    vapiRef.current = vapi;
+
+    vapi.on('call-start', () => {
+      setCallActive(true);
+      setCallConnecting(false);
+      setCallStatus('Connected — AI agent is speaking...');
+    });
+    vapi.on('call-end', () => {
+      setCallActive(false);
+      setCallConnecting(false);
+      setCallStatus('Call ended');
+    });
+    vapi.on('speech-start', () => setCallStatus('AI agent is speaking...'));
+    vapi.on('speech-end', () => setCallStatus('Listening to you...'));
+    vapi.on('error', (err: any) => {
+      console.error('Vapi error:', err);
+      setCallStatus('Connection error — please try again');
+      setCallActive(false);
+      setCallConnecting(false);
+    });
+    vapi.on('message', (msg: any) => {
+      if (msg.type === 'transcript' && msg.transcriptType === 'final') {
+        setCallTranscript((prev) => [
+          ...prev,
+          { role: msg.role === 'assistant' ? 'AI' : 'You', text: msg.transcript },
+        ]);
+      }
+    });
+
+    return () => {
+      // Don't destroy on StrictMode unmount — instance is reused
+    };
+  }, []);
+
+  useEffect(() => {
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [callTranscript]);
+
+  const handleStartCall = async () => {
+    if (!vapiRef.current || !VAPI_ASSISTANT_ID) return;
+
+    // Stop any active browser mic recording to avoid conflict
+    if (isListening || isRecording) {
+      mediaRecorderRef.current?.stop();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setIsRecording(false);
+      setIsListening(false);
+      isListeningRef.current = false;
+    }
+
+    setCallTranscript([]);
+    setCallStatus('Connecting...');
+    setCallConnecting(true);
+    try {
+      await vapiRef.current.start(VAPI_ASSISTANT_ID);
+    } catch (err) {
+      console.error('Failed to start call:', err);
+      setCallStatus('Failed to connect — please try again');
+      setCallConnecting(false);
+    }
+  };
+
+  const handleEndCall = () => {
+    vapiRef.current?.stop();
+    setCallActive(false);
+    setCallConnecting(false);
+    setCallStatus('Call ended');
+  };
 
   const SILENCE_THRESHOLD = 8;    // volume level below which = silence (0-255), lower = less sensitive
   const SILENCE_DURATION = 2500;  // ms of silence before auto-processing (2.5s gives time between items)
@@ -762,6 +859,120 @@ export default function VoiceOrderPage() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* AI Phone Call Section */}
+        <div className="mt-8 rounded-2xl bg-card shadow-card overflow-hidden">
+          {/* Header */}
+          <div className="bg-gradient-to-r from-green-600 to-emerald-600 p-5 text-white">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/20 backdrop-blur">
+                <Phone className="h-6 w-6" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold">AI Phone Ordering Agent</h3>
+                <p className="text-xs text-green-100">Call our AI agent — speaks Hindi, English & more</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-5 space-y-4">
+            {/* Phone number display */}
+            {PHONE_NUMBER && (
+              <div className="text-center">
+                <p className="text-xs text-zomato-gray mb-1 uppercase tracking-wider font-medium">Call us at</p>
+                <a
+                  href={`tel:${PHONE_NUMBER}`}
+                  className="text-2xl font-bold text-zomato-dark tracking-wide hover:text-green-600 transition-colors"
+                >
+                  {formatPhoneDisplay(PHONE_NUMBER)}
+                </a>
+                <p className="text-[10px] text-zomato-gray mt-1">US toll-free • Available 24/7</p>
+              </div>
+            )}
+
+            {/* Divider */}
+            {PHONE_NUMBER && VAPI_PUBLIC_KEY && (
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-zomato-border" />
+                <span className="text-xs text-zomato-gray font-medium">OR</span>
+                <div className="flex-1 h-px bg-zomato-border" />
+              </div>
+            )}
+
+            {/* Browser call button */}
+            {VAPI_PUBLIC_KEY && VAPI_ASSISTANT_ID && (
+              <div>
+                {!callActive && !callConnecting ? (
+                  <button
+                    onClick={handleStartCall}
+                    className="flex items-center justify-center gap-3 w-full bg-green-600 text-white py-4 rounded-xl text-base font-bold hover:bg-green-700 transition-all hover:shadow-lg active:scale-[0.98]"
+                  >
+                    <PhoneCall className="h-5 w-5" />
+                    Call AI Agent (Browser)
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleEndCall}
+                    className="flex items-center justify-center gap-3 w-full bg-red-500 text-white py-4 rounded-xl text-base font-bold hover:bg-red-600 transition-all animate-pulse"
+                  >
+                    <PhoneOff className="h-5 w-5" />
+                    End Call
+                  </button>
+                )}
+
+                {/* Call status */}
+                {callStatus && (
+                  <div className={`mt-3 flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium ${
+                    callActive
+                      ? 'bg-green-50 text-green-700 border border-green-200'
+                      : callConnecting
+                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                      : 'bg-gray-50 text-zomato-gray border border-zomato-border'
+                  }`}>
+                    {callActive && (
+                      <span className="flex h-2 w-2">
+                        <span className="animate-ping absolute h-2 w-2 rounded-full bg-green-400 opacity-75" />
+                        <span className="relative rounded-full h-2 w-2 bg-green-500" />
+                      </span>
+                    )}
+                    {callConnecting && (
+                      <div className="flex gap-1">
+                        {[0, 150, 300].map((d) => (
+                          <div key={d} className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                        ))}
+                      </div>
+                    )}
+                    {callStatus}
+                  </div>
+                )}
+
+                {/* Live transcript */}
+                {callTranscript.length > 0 && (
+                  <div className="mt-3 rounded-xl border border-zomato-border bg-gray-50 p-3 max-h-48 overflow-y-auto">
+                    <p className="text-[10px] font-semibold text-zomato-gray uppercase tracking-wider mb-2">Live Transcript</p>
+                    <div className="space-y-1.5">
+                      {callTranscript.map((t, i) => (
+                        <div key={i} className={`text-xs leading-relaxed ${t.role === 'AI' ? 'text-green-700' : 'text-zomato-dark'}`}>
+                          <span className="font-semibold">{t.role}:</span> {t.text}
+                        </div>
+                      ))}
+                      <div ref={transcriptEndRef} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Disclaimer */}
+            <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
+              <p className="text-[11px] text-amber-800 leading-relaxed">
+                <span className="font-semibold">Disclaimer:</span> Our AI-powered voice agent takes your order in your 
+                preferred language (English, Hindi, Hinglish, Gujarati & more). 
+                {PHONE_NUMBER ? ' Standard call charges may apply when calling the phone number. Browser calls are free.' : ' Browser calls are free.'}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
