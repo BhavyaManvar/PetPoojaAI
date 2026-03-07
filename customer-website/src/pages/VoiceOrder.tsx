@@ -60,7 +60,7 @@ async function toWavBlob(blob: Blob): Promise<Blob> {
 async function sarvamSTT(wavBlob: Blob): Promise<string> {
   const fd = new FormData();
   fd.append('file', wavBlob, 'audio.wav');
-  fd.append('model', 'saaras:v3');
+  fd.append('model', 'saarika:v2.5');
   fd.append('language_code', 'unknown');
   fd.append('with_timestamps', 'false');
   const res = await fetch('https://api.sarvam.ai/speech-to-text', {
