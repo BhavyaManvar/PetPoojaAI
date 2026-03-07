@@ -4,6 +4,8 @@ export const ENDPOINTS = {
   kpis: `${API_BASE}/kpis`,
   menuItems: `${API_BASE}/menu/items`,
   menuInsights: `${API_BASE}/menu/insights`,
+  menuAdminList: `${API_BASE}/menu/admin/list`,
+  menuAdminUpdatePrice: (itemId: number) => `${API_BASE}/menu/admin/${itemId}/price`,
   topCombos: `${API_BASE}/combos/top`,
   basketStats: `${API_BASE}/combos/basket-stats`,
   upsellForItem: (itemId: number) => `${API_BASE}/combos/upsell/for-item?item_id=${itemId}`,

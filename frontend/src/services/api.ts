@@ -29,6 +29,41 @@ export async function fetchMenuInsights(): Promise<MenuItem[]> {
   return data.items;
 }
 
+// ── Admin Menu ──────────────────────────────────────────────────────────────────
+export interface AdminMenuItem {
+  item_id: number;
+  item_name: string;
+  category: string;
+  price: number;
+  cost: number;
+  margin: number;
+  margin_pct: number;
+  monthly_sales: number;
+  is_available: boolean;
+}
+
+export async function fetchAdminMenuList(category?: string): Promise<{
+  items: AdminMenuItem[];
+  categories: string[];
+  total: number;
+}> {
+  const url = category
+    ? `${ENDPOINTS.menuAdminList}?category=${encodeURIComponent(category)}`
+    : ENDPOINTS.menuAdminList;
+  return fetchJSON(url);
+}
+
+export async function updateMenuItemPrice(
+  itemId: number,
+  price: number
+): Promise<{ item_id: number; item_name: string; old_price: number; new_price: number; margin: number; margin_pct: number }> {
+  return fetchJSON(ENDPOINTS.menuAdminUpdatePrice(itemId), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ price }),
+  });
+}
+
 // ── Combos & Upsell ─────────────────────────────────────────────────────────────
 export async function fetchTopCombos(category?: string): Promise<TopCombosResponse> {
   const url = category

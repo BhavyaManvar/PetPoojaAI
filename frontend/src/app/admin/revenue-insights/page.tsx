@@ -2,28 +2,46 @@
 
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { TrendingUp, TrendingDown, AlertTriangle, Star, Lightbulb } from "lucide-react";
+import { TrendingUp, TrendingDown, AlertTriangle, Star as StarIcon, Lightbulb } from "lucide-react";
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   ScatterChart,
   Scatter,
+  XAxis,
+  YAxis,
   ZAxis,
   Cell,
 } from "recharts";
-import {
-  computeAnalytics,
-  generateUpsellRules,
-  type AnalyticsItem,
-  type UpsellRule,
-  type MenuClass,
-} from "@/services/analyticsService";
+import { fetchMenuInsights, fetchTopCombos } from "@/services/api";
+import type { MenuItem } from "@/types/menu";
 import { formatCurrency } from "@/utils/helpers";
+
+type MenuClass = "Star" | "Plowhorse" | "Puzzle" | "Dog";
+
+interface AnalyticsItem extends MenuItem {
+  classification: MenuClass;
+  popularity_score: number;
+}
+
+/** Map backend menu_class ("Plow Horse") → UI MenuClass ("Plowhorse") */
+function normalizeClass(mc: string): MenuClass {
+  const map: Record<string, MenuClass> = {
+    Star: "Star",
+    Puzzle: "Puzzle",
+    Dog: "Dog",
+    "Plow Horse": "Plowhorse",
+    Plowhorse: "Plowhorse",
+  };
+  return map[mc] ?? "Dog";
+}
+
+interface UpsellDisplay {
+  base_item: string;
+  suggested_item: string;
+  confidence_score: number;
+}
 
 const CLASS_COLORS: Record<MenuClass, string> = {
   Star: "#C47A2C",
@@ -44,26 +62,42 @@ const container = {
   show: { opacity: 1, transition: { staggerChildren: 0.06 } },
 };
 
-const item = {
+const animItem = {
   hidden: { opacity: 0, y: 8 },
   show: { opacity: 1, y: 0, transition: { duration: 0.25 } },
 };
 
 export default function RevenueInsightsPage() {
   const [analytics, setAnalytics] = useState<AnalyticsItem[]>([]);
-  const [upsellRules, setUpsellRules] = useState<UpsellRule[]>([]);
+  const [upsellRules, setUpsellRules] = useState<UpsellDisplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeClass, setActiveClass] = useState<MenuClass | "All">("All");
 
   useEffect(() => {
     (async () => {
       try {
-        const [a, u] = await Promise.all([
-          computeAnalytics(),
-          generateUpsellRules(),
+        const [items, combosRes] = await Promise.all([
+          fetchMenuInsights(),
+          fetchTopCombos(),
         ]);
-        setAnalytics(a);
-        setUpsellRules(u);
+
+        // Compute max qty for popularity normalization
+        const maxQty = Math.max(...items.map((i) => i.total_qty_sold), 1);
+
+        const mapped: AnalyticsItem[] = items.map((i) => ({
+          ...i,
+          classification: normalizeClass(i.menu_class),
+          popularity_score: i.total_qty_sold / maxQty,
+        }));
+        setAnalytics(mapped);
+
+        // Map combos to upsell display
+        const rules: UpsellDisplay[] = combosRes.combos.slice(0, 10).map((c) => ({
+          base_item: c.antecedent,
+          suggested_item: c.consequent,
+          confidence_score: c.confidence,
+        }));
+        setUpsellRules(rules);
       } catch (err) {
         console.error(err);
       } finally {
@@ -92,7 +126,6 @@ export default function RevenueInsightsPage() {
     Dog: analytics.filter((a) => a.classification === "Dog").length,
   };
 
-  // Insights
   const highMarginLowSales = analytics
     .filter((a) => a.classification === "Puzzle")
     .sort((a, b) => b.contribution_margin - a.contribution_margin)
@@ -105,7 +138,7 @@ export default function RevenueInsightsPage() {
 
   const avgAOV =
     analytics.length > 0
-      ? analytics.reduce((s, a) => s + a.price, 0) / analytics.length
+      ? analytics.reduce((s, a) => s + (a.price ?? 0), 0) / analytics.length
       : 0;
 
   return (
@@ -123,7 +156,7 @@ export default function RevenueInsightsPage() {
           {(["Star", "Plowhorse", "Puzzle", "Dog"] as MenuClass[]).map((cls) => (
             <motion.button
               key={cls}
-              variants={item}
+              variants={animItem}
               onClick={() => setActiveClass(activeClass === cls ? "All" : cls)}
               className={`rounded-card border p-4 text-left transition-all ${
                 activeClass === cls
@@ -152,7 +185,7 @@ export default function RevenueInsightsPage() {
 
         {/* Scatter Plot — Menu Engineering Matrix */}
         <motion.div
-          variants={item}
+          variants={animItem}
           className="rounded-card border border-surface-border bg-surface-card p-5"
         >
           <h3 className="text-[13px] font-medium text-text-muted mb-4">
@@ -231,7 +264,7 @@ export default function RevenueInsightsPage() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           {/* High Margin Low Sales */}
           <motion.div
-            variants={item}
+            variants={animItem}
             className="rounded-card border border-surface-border bg-surface-card p-5"
           >
             <div className="flex items-center gap-2 mb-4">
@@ -267,7 +300,7 @@ export default function RevenueInsightsPage() {
 
           {/* Underperforming SKUs */}
           <motion.div
-            variants={item}
+            variants={animItem}
             className="rounded-card border border-surface-border bg-surface-card p-5"
           >
             <div className="flex items-center gap-2 mb-4">
@@ -303,11 +336,11 @@ export default function RevenueInsightsPage() {
 
           {/* Upsell Opportunities */}
           <motion.div
-            variants={item}
+            variants={animItem}
             className="rounded-card border border-surface-border bg-surface-card p-5"
           >
             <div className="flex items-center gap-2 mb-4">
-              <Star className="h-4 w-4 text-accent" />
+              <StarIcon className="h-4 w-4 text-accent" />
               <h3 className="text-[13px] font-medium text-text-muted">
                 Upsell Opportunities
               </h3>
@@ -345,7 +378,7 @@ export default function RevenueInsightsPage() {
 
         {/* Full Classification Table */}
         <motion.div
-          variants={item}
+          variants={animItem}
           className="rounded-card border border-surface-border bg-surface-card overflow-hidden"
         >
           <div className="p-5 border-b border-surface-border">
@@ -377,7 +410,7 @@ export default function RevenueInsightsPage() {
                     </td>
                     <td className="px-5 py-3 text-sm text-text-secondary">{a.category}</td>
                     <td className="px-5 py-3 text-sm text-text-primary">
-                      {formatCurrency(a.price)}
+                      {formatCurrency(a.price ?? 0)}
                     </td>
                     <td className="px-5 py-3 text-sm font-medium text-text-primary">
                       {formatCurrency(a.contribution_margin)}
