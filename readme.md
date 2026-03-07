@@ -564,92 +564,254 @@ Monthly Uplift = Recommended Price Change × Avg Monthly Quantity
 
 ## Prerequisites
 
-- Python 3.11+
-- Node.js 18+
-- ngrok (for phone call agent)
+| Tool | Version | Check Command |
+|------|---------|---------------|
+| **Python** | 3.10+ | `python --version` |
+| **Node.js** | 18+ | `node --version` |
+| **npm** | 9+ | `npm --version` |
+| **Git** | any | `git --version` |
+| **ngrok** | (optional, for phone calls) | `ngrok version` |
 
-## 1. Clone Repository
+---
+
+## Step 1 — Clone the Repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/BhavyaManvar/PetPoojaAI.git
 cd PetPoojaAI
 ```
 
-## 2. Backend Setup
+---
+
+## Step 2 — Generate the Dataset
+
+The backend needs an Excel dataset. Generate it first:
 
 ```bash
-# Create virtual environment
-python -m venv .venv
-
-# Activate (Windows)
-.venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r backend/requirements.txt
-
-# Start backend server
-cd backend
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+cd data
+python generate_dataset.py
+cd ..
 ```
 
-Backend runs at `http://localhost:8000` (Swagger docs at `/docs` when DEBUG=true).
+This creates `data/restaurant_ai_hybrid_dataset.xlsx`.
 
-## 3. Admin Dashboard Setup
+---
+
+## Step 3 — Backend Setup (FastAPI — Port 8000)
+
+### 3a. Create & activate a Python virtual environment
+
+**Windows (PowerShell):**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+**macOS / Linux:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3b. Install Python dependencies
+
+```bash
+pip install -r backend/requirements.txt
+```
+
+### 3c. Create the backend `.env` file
+
+Copy the example and fill in your keys:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+Edit `backend/.env` with your values:
+
+```env
+# ─── Data ──────────────────────────────────────────────────────────
+DATA_DIR=../data
+DATA_FILE=restaurant_ai_hybrid_dataset.xlsx
+
+# ─── CORS ──────────────────────────────────────────────────────────
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+
+# ─── Auth ──────────────────────────────────────────────────────────
+ADMIN_EMAILS=your-admin@gmail.com
+FIREBASE_PROJECT_ID=your-firebase-project-id
+
+# ─── Groq AI (Strategy Chatbot) ───────────────────────────────────
+GROK_API_KEY=your-groq-api-key
+
+# ─── Gemini AI ─────────────────────────────────────────────────────
+GEMINI_API_KEY=your-gemini-api-key
+
+# ─── Sarvam AI (multilingual voice) ───────────────────────────────
+SARVAM_API_KEY=your-sarvam-api-key
+
+# ─── Debug (set true for /docs Swagger UI) ─────────────────────────
+DEBUG=true
+```
+
+### 3d. Start the backend server
+
+```bash
+cd backend
+python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Verify it's running: open **http://localhost:8000/health** — you should see `{"status":"ok"}`.  
+Swagger docs (when DEBUG=true): **http://localhost:8000/docs**
+
+> **Keep this terminal running.** Open new terminals for frontend steps.
+
+---
+
+## Step 4 — Admin Dashboard Setup (Next.js — Port 3000)
+
+Open a **new terminal** in the project root.
+
+### 4a. Install Node dependencies
 
 ```bash
 cd frontend
 npm install
+```
+
+### 4b. Create the frontend `.env` file
+
+Create `frontend/.env` (or `.env.local`) with your Firebase config:
+
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_FIREBASE_API_KEY=your-firebase-api-key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your-project-id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=000000000000
+NEXT_PUBLIC_FIREBASE_APP_ID=your-app-id
+NEXT_PUBLIC_SARVAM_API_KEY=your-sarvam-api-key
+```
+
+### 4c. Start the admin dashboard
+
+```bash
 npm run dev
 ```
 
-Admin dashboard runs at `http://localhost:3000`.
+Admin dashboard runs at **http://localhost:3000**.
 
-## 4. Customer Website Setup
+> **Keep this terminal running.** Open another terminal for the customer website.
+
+---
+
+## Step 5 — Customer Website Setup (Vite + React — Port 5173)
+
+Open a **new terminal** in the project root.
+
+### 5a. Install Node dependencies
 
 ```bash
 cd customer-website
 npm install
+```
+
+### 5b. Create the customer website `.env` file
+
+Copy the example and fill in your keys:
+
+```bash
+cp .env.example .env
+```
+
+Edit `customer-website/.env`:
+
+```env
+# Firebase
+VITE_FIREBASE_API_KEY=your-firebase-api-key
+VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=000000000000
+VITE_FIREBASE_APP_ID=your-app-id
+
+# Backend API (proxied through Vite — leave as /api)
+VITE_API_URL=/api
+
+# Vapi (for voice call ordering)
+VITE_VAPI_PUBLIC_KEY=your-vapi-public-key
+VITE_VAPI_ASSISTANT_ID=your-vapi-assistant-id
+VITE_PHONE_NUMBER=+1XXXXXXXXXX
+```
+
+### 5c. Start the customer website
+
+```bash
 npm run dev
 ```
 
-Customer website runs at `http://localhost:5173`.
+Customer website runs at **http://localhost:5173**.
 
-## 5. Phone Call Agent Setup (Optional)
+---
+
+## Step 6 — Phone Call Agent Setup (Optional)
+
+The phone call agent uses [Vapi.ai](https://vapi.ai) and requires a public URL to your backend.
+
+### 6a. Start an ngrok tunnel
 
 ```bash
-# Start ngrok tunnel to backend
 ngrok http 8000
+```
 
-# Update Vapi assistant with your ngrok URL (one-time)
+Copy the `https://xxxx.ngrok-free.app` URL from the output.
+
+### 6b. Configure the Vapi assistant
+
+```bash
 cd backend
 python setup_vapi.py --server-url https://YOUR-NGROK-URL.ngrok-free.app/call/webhook
 ```
 
-## 6. Environment Variables
+Now you can call the Vapi phone number and it will connect to your local backend.
 
-### backend/.env
-```env
-DEBUG=true
-SARVAM_API_KEY=your_sarvam_api_key
-GEMINI_API_KEY=your_gemini_api_key
-FIREBASE_PROJECT_ID=your_firebase_project_id
-N8N_CALL_WEBHOOK=your_n8n_webhook_url
+---
+
+## Quick Start Summary
+
+Open **3 separate terminals** and run:
+
+| Terminal | Commands | URL |
+|----------|----------|-----|
+| **1 — Backend** | `cd backend` → `python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000` | http://localhost:8000/health |
+| **2 — Admin** | `cd frontend` → `npm run dev` | http://localhost:3000 |
+| **3 — Customer** | `cd customer-website` → `npm run dev` | http://localhost:5173 |
+
+> Make sure the Python venv is activated in Terminal 1 (`.\\.venv\\Scripts\\Activate.ps1` on Windows, `source .venv/bin/activate` on Mac/Linux).
+
+---
+
+## Running Tests
+
+```bash
+# Activate venv first, then from the project root:
+cd backend
+python -m pytest ../tests -v --tb=short
 ```
 
-### customer-website/.env
-```env
-VITE_FIREBASE_API_KEY=your_firebase_api_key
-VITE_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=your_project_id
-VITE_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-VITE_FIREBASE_MESSAGING_SENDER_ID=000000000000
-VITE_FIREBASE_APP_ID=your_app_id
-VITE_API_URL=/api
-VITE_SARVAM_API_KEY=your_sarvam_api_key
-VITE_VAPI_PUBLIC_KEY=your_vapi_public_key
-VITE_VAPI_ASSISTANT_ID=your_vapi_assistant_id
-VITE_PHONE_NUMBER=+1XXXXXXXXXX
-```
+---
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| `ModuleNotFoundError` | Make sure the venv is activated and `pip install -r backend/requirements.txt` was run |
+| Port already in use | Kill the process: `netstat -ano \| findstr :8000` then `taskkill /PID <pid> /F` (Windows) |
+| Firebase errors in frontend | Check that all `NEXT_PUBLIC_FIREBASE_*` / `VITE_FIREBASE_*` env vars are set correctly |
+| Backend can't find dataset | Run `cd data && python generate_dataset.py` to generate the Excel file |
+| AI chatbot returns empty | Make sure `GROK_API_KEY` is set in `backend/.env` (get a key from [console.groq.com](https://console.groq.com)) |
+| CORS errors | Ensure `ALLOWED_ORIGINS` in `backend/.env` includes your frontend URLs |
 
 ---
 
