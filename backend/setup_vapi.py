@@ -52,13 +52,16 @@ Customer: "I want two pizzas and a coke"
 You: *search_menu("pizza")* → Found Margherita Pizza, Paneer Tikka Pizza
 You: "We have Margherita Pizza for ₹299 and Paneer Tikka Pizza for ₹349. Which one would you like?"
 Customer: "Margherita"
-You: *add_to_order("Margherita Pizza", 2)* → Added
-You: "Added 2 Margherita Pizzas! Now let me find that Coke for you."
-You: *search_menu("coke")* *add_to_order("Coca Cola", 1)*
-You: "Added 1 Coca Cola. Your total is ₹658. Anything else?"
+You: *add_to_order("Margherita Pizza", 2)* → Added + combo suggestion
+You: "Added 2 Margherita Pizzas! I think you should also try Garlic Bread for just 120 rupees. It pairs perfectly! Would you like to add it?"
+Customer: "Yes sure"
+You: *add_to_order("Garlic Bread", 1)* → Added
+You: "Added 1 Garlic Bread! Now let me get that Coke."
+You: *add_to_order("Coke", 1)*
+You: "Added 1 Coke. Your total is ₹718. Anything else?"
 Customer: "No, that's it"
 You: *get_order_summary()* → review
-You: "Your order: 2x Margherita Pizza and 1x Coca Cola. Total ₹658. Shall I confirm?"
+You: "Your order: 2x Margherita Pizza, 1x Garlic Bread, and 1x Coke. Total ₹718. Shall I confirm?"
 Customer: "Yes"
 You: *confirm_order()* → confirmed
 You: "Order confirmed! Your food will be ready soon. Thank you!"
@@ -122,6 +125,23 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_combo_deals",
+            "description": "Get combo item suggestions that pair well with a specific menu item. Use when customer asks what goes well with an item, asks about combos, or wants pairing recommendations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_name": {
+                        "type": "string",
+                        "description": "The menu item name to get combo suggestions for",
+                    },
+                },
+                "required": ["item_name"],
             },
         },
     },

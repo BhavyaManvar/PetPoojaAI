@@ -30,7 +30,7 @@ import pandas as pd
 from rapidfuzz import fuzz, process as fuzz_process
 
 from app.dependencies import get_dataframes
-from app.services.order_service import create_order
+from app.services.order_service import create_order, update_order
 from app.services.upsell_engine import recommend_addon
 from app.services.sarvam_service import (
     detect_language,
@@ -42,6 +42,91 @@ from app.services.sarvam_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── Hardcoded Combo Recommendations (item → list of combo partners) ───────────
+# When a customer orders the key item, suggest the first available combo partner.
+# Prices are looked up dynamically from the menu DataFrame at runtime.
+COMBO_MAP: dict[str, list[str]] = {
+    # Pizza combos
+    "Paneer Tikka Pizza": ["Cheesy Fries", "Coke", "Chocolate Brownie"],
+    "Margherita Pizza": ["Garlic Bread", "Mango Shake", "Gulab Jamun"],
+    "Cheese Burst Pizza": ["Peri Peri Fries", "Cold Coffee", "Pizza Combo Meal"],
+    "Farmhouse Pizza": ["Loaded Nachos", "Virgin Mojito", "Choco Lava Cake"],
+    "Veggie Delight Pizza": ["Potato Wedges", "Lemon Soda", "Kulfi"],
+    "Corn Cheese Pizza": ["Cheese Nachos", "Cappuccino", "Cheesecake"],
+    "Mexican Green Wave Pizza": ["French Fries", "Oreo Shake", "Tiramisu"],
+    # Burger combos
+    "Veg Burger": ["French Fries", "Coke"],
+    "Aloo Tikki Burger": ["Cheesy Fries", "Masala Chai"],
+    "Paneer Burger": ["Potato Wedges", "Mango Shake", "Burger Combo Meal"],
+    "Cheese Veg Burger": ["Peri Peri Fries", "Lemon Soda"],
+    "Spicy Veg Burger": ["Garlic Bread", "Cold Coffee"],
+    "Corn Spinach Burger": ["Loaded Nachos"],
+    "Double Patty Burger": ["Energy Drink", "Snack Combo"],
+    # Main Course combos
+    "Paneer Butter Masala": ["Butter Naan"],
+    "Dal Makhani": ["Jeera Rice"],
+    "Kadai Paneer": ["Garlic Naan"],
+    "Veg Kolhapuri": ["Tandoori Roti"],
+    "Malai Kofta": ["Veg Pulao"],
+    "Shahi Paneer": ["Lassi"],
+    "Palak Paneer": ["Plain Naan"],
+    "Chole Masala": ["Veg Biryani"],
+    "Rajma Masala": ["Missi Roti"],
+    "Aloo Gobi": ["Jeera Rice"],
+    "Baingan Bharta": ["Stuffed Kulcha"],
+    "Mixed Veg Curry": ["Peas Pulao"],
+    "Kofta Curry": ["Cheese Naan"],
+    "Kaju Curry": ["Gulab Jamun"],
+    "Paneer Lababdar": ["Butter Naan"],
+    "Methi Malai Paneer": ["Tandoori Roti"],
+    "Navratan Korma": ["Veg Fried Rice"],
+    "Veg Handi": ["Garlic Naan"],
+    "Tawa Veg": ["Schezwan Fried Rice"],
+    "Paneer Bhurji": ["Plain Naan"],
+    "Aloo Jeera": ["Rasgulla"],
+    "Bhindi Masala": ["Masala Chai"],
+    "Mushroom Masala": ["Paneer Pulao"],
+    # South Indian combos
+    "Masala Dosa": ["Coconut Water"],
+    "Idli Sambar": ["Masala Chai"],
+    "Plain Dosa": ["Coke"],
+    "Mysore Masala Dosa": ["Raita"],
+    "Rava Dosa": ["Green Tea"],
+    "Onion Uttapam": ["Buttermilk"],
+    "Medu Vada": ["Lassi"],
+    # Street Food combos
+    "Pav Bhaji": ["Lassi"],
+    "Vada Pav": ["Masala Chai"],
+    "Dabeli": ["Coke"],
+    "Sev Puri": ["Lemon Soda"],
+    "Bhel Puri": ["Green Tea"],
+    "Pani Puri": ["Mango Shake"],
+    "Ragda Pattice": ["Gulab Jamun"],
+    "Aloo Chaat": ["Buttermilk"],
+    "Samosa": ["Masala Chai"],
+    "Kachori": ["Chocolate Brownie"],
+    # Sandwich combos
+    "Veg Sandwich": ["French Fries"],
+    "Grilled Sandwich": ["Mango Shake"],
+    "Cheese Sandwich": ["Potato Wedges"],
+    "Paneer Sandwich": ["Cold Coffee"],
+    "Club Sandwich": ["Cheese Nachos"],
+    # Wraps combos
+    "Veg Wrap": ["Peri Peri Fries"],
+    "Paneer Wrap": ["Lassi"],
+    "Falafel Wrap": ["Green Salad"],
+    "Mexican Wrap": ["Coke"],
+    "Cheese Wrap": ["Garlic Bread"],
+    # Italian combos
+    "Veg Pasta": ["Cappuccino"],
+    "White Sauce Pasta": ["Tiramisu"],
+    "Red Sauce Pasta": ["Garlic Bread"],
+    "Penne Alfredo": ["Cheesecake"],
+    "Arrabbiata Pasta": ["Lemon Iced Tea"],
+    "Veg Lasagna": ["Chocolate Brownie"],
+    "Garlic Spaghetti": ["Green Salad"],
+}
 
 router = APIRouter()
 
@@ -67,6 +152,7 @@ def _get_session(call_id: str) -> dict:
         "suggestions_given": set(),
         "language": LANG_ENGLISH,
         "language_detected": False,
+        "delivery_address": "",
         "started_at": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -129,21 +215,62 @@ def _get_popular_items(menu_df: pd.DataFrame, top_n: int = 6) -> list[dict]:
     ]
 
 
-def _get_combo_suggestion(item_id: int, menu_df: pd.DataFrame, order_items_df: pd.DataFrame) -> str | None:
-    """Get a combo/upsell suggestion for the given item using the upsell engine."""
-    try:
-        rec = recommend_addon(item_id, menu_df, order_items_df)
-        if rec.get("recommended_addon"):
-            addon_name = rec["recommended_addon"]
-            addon_price = rec.get("price", 0)
-            return (
-                f"Great choice! May I also suggest adding {addon_name} "
-                f"for just {_rupees(addon_price)}? "
-                f"It goes perfectly with your order."
-            )
-    except Exception as e:
-        logger.warning("Combo suggestion failed for item %s: %s", item_id, e)
+def _get_combo_suggestion(item_name: str, menu_df: pd.DataFrame, session: dict) -> str | None:
+    """Get a combo suggestion using the hardcoded COMBO_MAP.
+
+    Looks up the ordered item in COMBO_MAP, finds the first combo partner
+    that is NOT already in the cart, resolves its price from menu_df,
+    and returns a friendly spoken suggestion.
+    """
+    combo_partners = COMBO_MAP.get(item_name)
+    if not combo_partners:
+        return None
+
+    # Items already in the cart
+    cart_names = {i["item_name"] for i in session.get("items", [])}
+
+    for partner_name in combo_partners:
+        if partner_name in cart_names:
+            continue  # already ordered, try next partner
+
+        # Look up price from menu
+        match = menu_df[menu_df["item_name"].str.lower() == partner_name.lower()]
+        if match.empty:
+            continue
+
+        partner_price = float(match.iloc[0]["price"])
+        return (
+            f"Nice choice! I think you should also try {partner_name} "
+            f"for just {_rupees(partner_price)}. "
+            f"It pairs perfectly with {item_name}. Would you like to add it?"
+        )
     return None
+
+
+def _get_combo_deals_for_item(item_name: str, menu_df: pd.DataFrame, session: dict) -> str:
+    """Return all combo partners for an item with prices (for get_combo_deals tool)."""
+    combo_partners = COMBO_MAP.get(item_name)
+    if not combo_partners:
+        return f"Sorry, we don't have specific combo deals for {item_name} right now."
+
+    cart_names = {i["item_name"] for i in session.get("items", [])}
+    deals = []
+    for partner_name in combo_partners:
+        match = menu_df[menu_df["item_name"].str.lower() == partner_name.lower()]
+        if match.empty:
+            continue
+        price = float(match.iloc[0]["price"])
+        already = " (already in your order)" if partner_name in cart_names else ""
+        deals.append(f"{partner_name} for {_rupees(price)}{already}")
+
+    if not deals:
+        return f"Sorry, combo items for {item_name} are not available right now."
+
+    return (
+        f"Great combo options with {item_name}: "
+        + ", ".join(deals)
+        + ". Would you like to add any of these?"
+    )
 
 
 # ── Session helpers ───────────────────────────────────────────────────────────
@@ -205,13 +332,12 @@ async def _add_to_order(call_id: str, item_name: str, quantity: int, menu_df: pd
         f"Your current total is {_rupees(session['total'])}."
     )
 
-    # Combo suggestion via upsell engine
-    if item_id not in session.get("suggestions_given", set()):
-        order_items_df = pd.DataFrame(session["items"])
-        combo_msg = _get_combo_suggestion(item_id, menu_df, order_items_df)
+    # Combo suggestion from hardcoded COMBO_MAP
+    if matched_name not in session.get("suggestions_given", set()):
+        combo_msg = _get_combo_suggestion(matched_name, menu_df, session)
         if combo_msg:
             msg += f" {combo_msg}"
-            session.setdefault("suggestions_given", set()).add(item_id)
+            session.setdefault("suggestions_given", set()).add(matched_name)
 
     return {"success": True, "message": msg}
 
@@ -243,7 +369,7 @@ async def _remove_from_order(call_id: str, item_name: str, menu_df: pd.DataFrame
     return {"success": True, "message": f"Removed {matched_name}. Your order is now empty."}
 
 
-def _get_order_summary(call_id: str) -> dict:
+def _get_order_summary(call_id: str, menu_df: pd.DataFrame | None = None) -> dict:
     session = _call_sessions.get(call_id, {"items": [], "total": 0.0})
     if not session["items"]:
         return {"message": "Your order is currently empty. What would you like to order?"}
@@ -251,10 +377,32 @@ def _get_order_summary(call_id: str) -> dict:
     for i in session["items"]:
         lines.append(f"{i['qty']} {i['item_name']} at {_rupees(i['line_total'])}")
     items_text = ", ".join(lines)
+
+    # Check for missing combo partners and suggest them
+    combo_hint = ""
+    if menu_df is not None and not menu_df.empty:
+        cart_names = {i["item_name"] for i in session["items"]}
+        missing = []
+        for cart_item in cart_names:
+            partners = COMBO_MAP.get(cart_item, [])
+            for p in partners:
+                if p not in cart_names:
+                    row = menu_df[menu_df["item_name"].str.lower() == p.lower()]
+                    if not row.empty:
+                        missing.append(f"{p} for {_rupees(float(row.iloc[0]['price']))}")
+                    break  # only first missing partner per item
+        if missing:
+            combo_hint = (
+                f" By the way, you might also enjoy adding "
+                + " or ".join(missing[:2])
+                + ". Want me to add any of those?"
+            )
+
     return {
         "message": (
             f"Here is your order: {items_text}. "
-            f"Your total comes to {_rupees(session['total'])}. "
+            f"Your total comes to {_rupees(session['total'])}."
+            f"{combo_hint} "
             f"Would you like to confirm this order, or make any changes?"
         ),
     }
@@ -265,12 +413,26 @@ def _confirm_order(call_id: str, menu_df: pd.DataFrame) -> dict:
     if not session or not session["items"]:
         return {"success": False, "message": "There are no items in your order yet. Please add some items first."}
 
+    # Check if address has been collected
+    if not session.get("delivery_address"):
+        return {
+            "success": False,
+            "message": (
+                "Before I confirm your order, I need your delivery address. "
+                "Where should we deliver your order?"
+            ),
+        }
+
     items_for_order = [{"item_id": i["item_id"], "qty": i["qty"]} for i in session["items"]]
     order = create_order(items_for_order, menu_df, order_source="phone_call")
     order_id = order["order_id"]
     total = order["total_price"]
     num_items = sum(i["qty"] for i in session["items"])
     items_text = ", ".join(f"{i['qty']} {i['item_name']}" for i in session["items"])
+    address = session["delivery_address"]
+
+    # Save address to the persisted order
+    update_order(order_id, {"delivery_address": address})
 
     # Estimate delivery time based on order size
     est_minutes = 15 + (num_items * 3)
@@ -283,7 +445,8 @@ def _confirm_order(call_id: str, menu_df: pd.DataFrame) -> dict:
         "message": (
             f"Your order number {order_id} is confirmed! "
             f"You ordered {items_text} for a total of {_rupees(total)}. "
-            f"Estimated preparation time is {est_minutes} minutes. "
+            f"We will deliver it to {address}. "
+            f"Estimated delivery time is {est_minutes} minutes. "
             f"You can track your order with order number {order_id}. "
             f"Thank you for choosing PetPooja! Enjoy your meal! "
             f"Now ending call. Goodbye!"
@@ -359,11 +522,31 @@ async def _dispatch_function(
         return r["message"]
 
     if func_name == "get_order_summary":
-        return _get_order_summary(call_id)["message"]
+        return _get_order_summary(call_id, menu_df)["message"]
+
+    if func_name == "get_combo_deals":
+        item = params.get("item_name", "")
+        # Fuzzy match the item name against menu
+        session = _get_session(call_id)
+        names = menu_df["item_name"].tolist()
+        match = fuzz_process.extractOne(item, names, scorer=fuzz.WRatio, score_cutoff=40)
+        matched = match[0] if match else item
+        return _get_combo_deals_for_item(matched, menu_df, session)
 
     if func_name == "confirm_order":
         r = _confirm_order(call_id, menu_df)
         return r["message"]
+
+    if func_name == "collect_address":
+        address = params.get("address", "").strip()
+        if not address:
+            return "I didn't catch your address. Could you please tell me where we should deliver your order?"
+        session = _get_session(call_id)
+        session["delivery_address"] = address
+        return (
+            f"Got it! Your delivery address is {address}. "
+            f"Now let me confirm your order."
+        )
 
     if func_name == "get_menu_categories":
         cats = _get_menu_categories(menu_df)

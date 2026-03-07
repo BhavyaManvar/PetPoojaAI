@@ -7,10 +7,12 @@ import {
   Package,
   Mic,
   Monitor,
+  Phone,
   Filter,
   RefreshCw,
   Database,
   ShoppingBag,
+  MapPin,
 } from "lucide-react";
 import { fetchOrders, seedOrders } from "@/services/api";
 import { formatCurrency } from "@/utils/helpers";
@@ -30,6 +32,7 @@ interface BackendOrder {
   total_price: number;
   order_source: string;
   created_at: string;
+  delivery_address: string;
   items: BackendOrderItem[];
 }
 
@@ -44,12 +47,14 @@ const STATUS_STYLES: Record<string, string> = {
 
 const SOURCE_ICONS: Record<string, typeof Mic> = {
   voice: Mic,
+  phone_call: Phone,
   manual: Package,
   online: Monitor,
 };
 
 const SOURCE_LABEL: Record<string, string> = {
   voice: "Voice Order",
+  phone_call: "Phone Call",
   manual: "Manual / POS",
   online: "Online",
 };
@@ -100,10 +105,10 @@ export default function OrderHistoryPage() {
   });
 
   const statuses = ["all", "pending", "confirmed", "preparing", "completed", "cancelled"];
-  const sources = ["all", "voice", "manual", "online"];
+  const sources = ["all", "voice", "phone_call", "manual", "online"];
 
   const totalRevenue = orders.reduce((s, o) => s + o.total_price, 0);
-  const voiceCount = orders.filter((o) => o.order_source === "voice").length;
+  const voiceCount = orders.filter((o) => o.order_source === "voice" || o.order_source === "phone_call").length;
   const completedCount = orders.filter((o) => o.status === "completed").length;
 
   if (loading) {
@@ -277,6 +282,12 @@ export default function OrderHistoryPage() {
                     </span>
                   ))}
                 </div>
+                {order.delivery_address && (
+                  <div className="mt-2 flex items-center gap-1.5 text-xs text-text-muted">
+                    <MapPin className="h-3 w-3" />
+                    <span>{order.delivery_address}</span>
+                  </div>
+                )}
               </div>
             );
           })}

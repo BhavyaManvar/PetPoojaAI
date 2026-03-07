@@ -9,9 +9,12 @@ Orders are stored in-memory so they can be listed via GET /orders.
 
 from __future__ import annotations
 
+import json
+import os
 import threading
 import random
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
@@ -21,8 +24,39 @@ from app.utils.fuzzy_match import best_match
 _lock = threading.Lock()
 _order_counter: int = 1000
 
-# ── In-memory order store ───────────────────────────────────────────────────────
+# ── Persistent JSON order store ─────────────────────────────────────────────────
+_ORDERS_FILE = Path(__file__).resolve().parent.parent.parent.parent / "data" / "orders.json"
 _orders: list[dict] = []
+
+
+def _load_orders_from_file() -> None:
+    """Load orders from JSON file on startup."""
+    global _order_counter
+    if _ORDERS_FILE.exists():
+        try:
+            with open(_ORDERS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                _orders.clear()
+                _orders.extend(data)
+                if _orders:
+                    _order_counter = max(o.get("order_id", 1000) for o in _orders)
+        except (json.JSONDecodeError, OSError):
+            pass  # start fresh if file is corrupt
+
+
+def _save_orders_to_file() -> None:
+    """Persist orders to JSON file."""
+    try:
+        _ORDERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(_ORDERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(_orders, f, indent=2, ensure_ascii=False, default=str)
+    except OSError:
+        pass
+
+
+# Load existing orders on module import
+_load_orders_from_file()
 
 
 def get_all_orders(limit: int = 100) -> list[dict]:
@@ -41,9 +75,10 @@ def get_order_by_id(order_id: int) -> dict | None:
 
 
 def _store_order(order: dict) -> None:
-    """Append an order to the in-memory store."""
+    """Append an order and persist to disk."""
     with _lock:
         _orders.append(order)
+        _save_orders_to_file()
 
 
 def get_order_count() -> int:
@@ -55,6 +90,18 @@ def clear_orders() -> None:
     """Clear all stored orders (used by seed)."""
     with _lock:
         _orders.clear()
+        _save_orders_to_file()
+
+
+def update_order(order_id: int, updates: dict) -> dict | None:
+    """Update an existing order (e.g. add delivery address)."""
+    with _lock:
+        for o in _orders:
+            if o["order_id"] == order_id:
+                o.update(updates)
+                _save_orders_to_file()
+                return o
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +251,7 @@ def create_order(
         "total_price": round(total_price, 2),
         "order_source": order_source,
         "created_at": (created_at or datetime.now(timezone.utc)).isoformat(),
+        "delivery_address": "",
         "items": line_items,
     }
 
@@ -216,8 +264,16 @@ def create_order(
 # ---------------------------------------------------------------------------
 
 def seed_demo_orders(menu_df: pd.DataFrame, count: int = 25) -> list[dict]:
-    """Generate *count* realistic demo orders with varied items, qtys, and timestamps."""
-    clear_orders()
+    """Generate *count* realistic demo orders with varied items, qtys, and timestamps.
+
+    Preserves real phone_call orders — only clears demo/seeded orders.
+    """
+    # Keep real phone call orders
+    with _lock:
+        real_orders = [o for o in _orders if o.get("order_source") == "phone_call"]
+        _orders.clear()
+        _orders.extend(real_orders)
+        _save_orders_to_file()
 
     if menu_df.empty:
         return []

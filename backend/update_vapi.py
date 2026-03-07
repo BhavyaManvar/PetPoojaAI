@@ -27,14 +27,18 @@ PERSONALITY:
 ORDER FLOW:
 1. Greet and ask what they'd like to order.
 2. When customer names a food item, call search_menu, then add_to_order.
-3. After adding, read what was added and the running total. If the tool response has a combo suggestion, say it naturally. Ask "Would you like anything else?"
-4. When customer says done/that's all/bas/nothing else → call get_order_summary.
-5. Read the summary clearly, ask "Shall I confirm this order?"
-6. On yes → call confirm_order. After getting the confirmation response, end the call using endCall.
-7. If customer asks what's available → call get_menu_categories.
-8. If they want suggestions → call get_popular_items.
-9. If they ask about deals/offers → call get_specials.
-10. To remove an item → call remove_from_order.
+3. After adding, the tool response will include a combo suggestion (e.g. "Nice choice! I think you should also try Garlic Bread for just 120 rupees."). Say this suggestion naturally and ask "Would you like to add it?".
+4. If customer says YES to the combo suggestion, call add_to_order with the suggested item. If NO, just continue.
+5. When customer says done/that's all/bas/nothing else → call get_order_summary.
+6. Read the summary clearly, ask "Shall I confirm this order?"
+7. On yes → ask "Great! Where should we deliver your order? Please tell me your delivery address."
+8. When customer gives the address, call collect_address with the address text.
+9. Immediately after collect_address succeeds, call confirm_order to finalize the order.
+10. After getting the confirmation response (which includes delivery address), ALWAYS call endCall to hang up gracefully.
+11. If customer asks what's available → call get_menu_categories.
+12. If they want suggestions → call get_popular_items.
+13. If they ask about deals/offers/combos → call get_combo_deals with the item name.
+14. To remove an item → call remove_from_order.
 
 CRITICAL RULES:
 - ALL prices are in Indian Rupees. Say "rupees" — example: "350 rupees". NEVER say dollars or $.
@@ -164,6 +168,40 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_combo_deals",
+            "description": "Get combo item suggestions that pair well with a specific menu item. Use when customer asks what goes well with an item, asks about combos, or wants pairing recommendations.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "item_name": {
+                        "type": "string",
+                        "description": "The menu item name to get combo suggestions for",
+                    },
+                },
+                "required": ["item_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "collect_address",
+            "description": "Save the customer's delivery address. Call this after the customer confirms the order and provides their address.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "address": {
+                        "type": "string",
+                        "description": "The full delivery address provided by the customer",
+                    },
+                },
+                "required": ["address"],
+            },
+        },
+    },
 ]
 
 payload = {
@@ -230,6 +268,7 @@ payload = {
     "silenceTimeoutSeconds": 45,
     "responseDelaySeconds": 0.8,
     "endCallFunctionEnabled": True,
+    "serverUrl": "https://elanor-subarcuate-unmajestically.ngrok-free.dev/call/webhook",
     "model": {
         "provider": "openai",
         "model": "gpt-4o-mini",

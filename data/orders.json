@@ -1,0 +1,153 @@
+[
+  {
+    "order_id": 1001,
+    "status": "completed",
+    "total_price": 1090.0,
+    "order_source": "manual",
+    "created_at": "2026-03-03T00:19:23.386905+00:00",
+    "items": [
+      {
+        "item_id": 101,
+        "item_name": "Paneer Fried Rice",
+        "category": "Rice",
+        "qty": 3,
+        "unit_price": 230.0,
+        "line_total": 690.0
+      },
+      {
+        "item_id": 90,
+        "item_name": "Aloo Jeera",
+        "category": "Main Course",
+        "qty": 2,
+        "unit_price": 200.0,
+        "line_total": 400.0
+      }
+    ]
+  },
+  {
+    "order_id": 1002,
+    "status": "confirmed",
+    "total_price": 1190.0,
+    "order_source": "manual",
+    "created_at": "2026-03-06T00:19:23.386905+00:00",
+    "items": [
+      {
+        "item_id": 195,
+        "item_name": "Dinner Combo",
+        "category": "Combo",
+        "qty": 1,
+        "unit_price": 350.0,
+        "line_total": 350.0
+      },
+      {
+        "item_id": 120,
+        "item_name": "Dry Fruit Halwa",
+        "category": "Desserts",
+        "qty": 1,
+        "unit_price": 200.0,
+        "line_total": 200.0
+      },
+      {
+        "item_id": 61,
+        "item_name": "Energy Drink",
+        "category": "Beverages",
+        "qty": 3,
+        "unit_price": 160.0,
+        "line_total": 480.0
+      },
+      {
+        "item_id": 163,
+        "item_name": "Cheese Sandwich",
+        "category": "Sandwich",
+        "qty": 1,
+        "unit_price": 160.0,
+        "line_total": 160.0
+      }
+    ]
+  },
+  {
+    "order_id": 1003,
+    "status": "completed",
+    "total_price": 610.0,
+    "order_source": "online",
+    "created_at": "2026-03-04T07:19:23.386905+00:00",
+    "items": [
+      {
+        "item_id": 50,
+        "item_name": "Strawberry Shake",
+        "category": "Beverages",
+        "qty": 1,
+        "unit_price": 130.0,
+        "line_total": 130.0
+      },
+      {
+        "item_id": 104,
+        "item_name": "Egg Fried Rice",
+        "category": "Rice",
+        "qty": 2,
+        "unit_price": 240.0,
+        "line_total": 480.0
+      }
+    ]
+  },
+  {
+    "order_id": 1004,
+    "status": "confirmed",
+    "total_price": 400.0,
+    "order_source": "phone_call",
+    "created_at": "2026-03-07T09:21:16.060324+00:00",
+    "items": [
+      {
+        "item_id": 2,
+        "item_name": "Margherita Pizza",
+        "category": "Pizza",
+        "qty": 1,
+        "unit_price": 280.0,
+        "line_total": 280.0
+      },
+      {
+        "item_id": 8,
+        "item_name": "Garlic Bread",
+        "category": "Sides",
+        "qty": 1,
+        "unit_price": 120.0,
+        "line_total": 120.0
+      }
+    ],
+    "delivery_address": "Siridip hostel"
+  },
+  {
+    "order_id": 1005,
+    "status": "confirmed",
+    "total_price": 550.0,
+    "order_source": "phone_call",
+    "created_at": "2026-03-07T09:28:23.876068+00:00",
+    "items": [
+      {
+        "item_id": 2,
+        "item_name": "Margherita Pizza",
+        "category": "Pizza",
+        "qty": 1,
+        "unit_price": 280.0,
+        "line_total": 280.0
+      },
+      {
+        "item_id": 21,
+        "item_name": "Cheese Veg Burger",
+        "category": "Burger",
+        "qty": 1,
+        "unit_price": 210.0,
+        "line_total": 210.0
+      },
+      {
+        "item_id": 39,
+        "item_name": "Coke",
+        "category": "Beverages",
+        "qty": 1,
+        "unit_price": 60.0,
+        "line_total": 60.0
+      }
+    ],
+    "delivery_address": "Fifty four"
+  }
+]

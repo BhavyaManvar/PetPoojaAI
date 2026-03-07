@@ -28,6 +28,7 @@ class OrderResponse(BaseModel):
     total_price: float
     order_source: str = "manual"
     created_at: str = ""
+    delivery_address: str = ""
     items: list[OrderResponseItem] = []
 
 
