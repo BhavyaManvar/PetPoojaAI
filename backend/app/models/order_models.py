@@ -1,11 +1,22 @@
 """Pydantic models for order endpoints."""
 
+from __future__ import annotations
+
 from pydantic import BaseModel, Field
+
+
+class ModifierSelection(BaseModel):
+    """A single modifier choice (size, spice, or add-on)."""
+
+    size: str = ""
+    spice: str = ""
+    addons: list[str] = []
 
 
 class OrderLineItem(BaseModel):
     item_id: int
     qty: int
+    modifiers: ModifierSelection | None = None
 
 
 class OrderRequest(BaseModel):
@@ -19,6 +30,8 @@ class OrderResponseItem(BaseModel):
     category: str = ""
     qty: int
     unit_price: float
+    modifier_price: float = 0.0
+    modifiers: ModifierSelection | None = None
     line_total: float
 
 
@@ -30,6 +43,7 @@ class OrderResponse(BaseModel):
     created_at: str = ""
     delivery_address: str = ""
     items: list[OrderResponseItem] = []
+    kot_id: str = ""
 
 
 class OrderListResponse(BaseModel):

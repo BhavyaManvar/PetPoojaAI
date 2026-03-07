@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Plus, Minus, ShoppingCart, Leaf, Flame, X, ChevronRight } from 'lucide-react';
+import { Search, Plus, Minus, ShoppingCart, Leaf, Flame, X, ChevronRight, Settings2 } from 'lucide-react';
 import { useCart } from '@/hooks/useCart';
+import type { CartModifiers } from '@/hooks/useCart';
 import { API, fetchJSON } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -22,6 +23,26 @@ interface MenuResponse {
   categories: string[];
 }
 
+interface ModifiersData {
+  sizes?: { name: string; price_add: number }[];
+  spice_levels?: { name: string; price_add: number }[];
+  addons?: { name: string; price_add: number }[];
+}
+
+// Cache modifiers per category
+const modifierCache: Record<string, ModifiersData> = {};
+
+async function fetchModifiers(category: string): Promise<ModifiersData> {
+  if (modifierCache[category]) return modifierCache[category];
+  try {
+    const data = await fetchJSON<ModifiersData>(API.orderModifiers(category));
+    modifierCache[category] = data;
+    return data;
+  } catch {
+    return {};
+  }
+}
+
 export default function MenuPage() {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -30,6 +51,11 @@ export default function MenuPage() {
   const [loading, setLoading] = useState(true);
   const [imgErrors, setImgErrors] = useState<Set<number>>(new Set());
   const [cartOpen, setCartOpen] = useState(false);
+  const [modifierItem, setModifierItem] = useState<MenuItem | null>(null);
+  const [modData, setModData] = useState<ModifiersData>({});
+  const [selSize, setSelSize] = useState('');
+  const [selSpice, setSelSpice] = useState('');
+  const [selAddons, setSelAddons] = useState<string[]>([]);
   const { cart, addItem, removeItem, totalItems, totalAmount } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -55,6 +81,72 @@ export default function MenuPage() {
   const getQty = (itemId: number) => cart.find((c) => c.item_id === itemId)?.qty || 0;
 
   const formatPrice = (n: number) => `₹${n.toLocaleString('en-IN')}`;
+
+  const openModifierModal = async (item: MenuItem) => {
+    const mods = await fetchModifiers(item.category);
+    if (mods.sizes || mods.spice_levels || mods.addons) {
+      setModData(mods);
+      setSelSize(mods.sizes?.[0]?.name || '');
+      setSelSpice(mods.spice_levels?.[1]?.name || ''); // default Medium
+      setSelAddons([]);
+      setModifierItem(item);
+    } else {
+      // No modifiers — add directly
+      addItem({
+        item_id: item.item_id,
+        item_name: item.item_name,
+        price: item.price,
+        image_url: item.image_url,
+        category: item.category,
+      });
+    }
+  };
+
+  const addWithModifiers = () => {
+    if (!modifierItem) return;
+    const modifiers: CartModifiers = {};
+    let modPrice = 0;
+    if (selSize && modData.sizes) {
+      modifiers.size = selSize;
+      modPrice += modData.sizes.find((s) => s.name === selSize)?.price_add || 0;
+    }
+    if (selSpice && modData.spice_levels) {
+      modifiers.spice = selSpice;
+      modPrice += modData.spice_levels.find((s) => s.name === selSpice)?.price_add || 0;
+    }
+    if (selAddons.length > 0 && modData.addons) {
+      modifiers.addons = selAddons;
+      for (const a of selAddons) {
+        modPrice += modData.addons.find((x) => x.name === a)?.price_add || 0;
+      }
+    }
+    addItem({
+      item_id: modifierItem.item_id,
+      item_name: modifierItem.item_name,
+      price: modifierItem.price,
+      image_url: modifierItem.image_url,
+      category: modifierItem.category,
+      modifiers: Object.keys(modifiers).length > 0 ? modifiers : undefined,
+      modifier_price: modPrice || undefined,
+    });
+    setModifierItem(null);
+  };
+
+  const toggleAddon = (name: string) => {
+    setSelAddons((prev) =>
+      prev.includes(name) ? prev.filter((a) => a !== name) : [...prev, name]
+    );
+  };
+
+  const modExtraPrice = (() => {
+    let p = 0;
+    if (selSize && modData.sizes) p += modData.sizes.find((s) => s.name === selSize)?.price_add || 0;
+    if (selSpice && modData.spice_levels) p += modData.spice_levels.find((s) => s.name === selSpice)?.price_add || 0;
+    for (const a of selAddons) {
+      p += modData.addons?.find((x) => x.name === a)?.price_add || 0;
+    }
+    return p;
+  })();
 
   const fallbackImg = (itemName: string) => {
     const name = itemName.toLowerCase();
@@ -177,14 +269,7 @@ export default function MenuPage() {
                           <div className="mt-3">
                             {qty === 0 ? (
                               <button
-                                onClick={() =>
-                                  addItem({
-                                    item_id: item.item_id,
-                                    item_name: item.item_name,
-                                    price: item.price,
-                                    image_url: item.image_url,
-                                  })
-                                }
+                                onClick={() => openModifierModal(item)}
                                 className="w-full flex items-center justify-center gap-1.5 bg-primary text-white py-2.5 rounded-xl text-sm font-semibold hover:bg-primary-600 transition-colors"
                               >
                                 <Plus className="h-4 w-4" /> ADD
@@ -321,6 +406,121 @@ export default function MenuPage() {
         removeItem={removeItem}
         totalAmount={totalAmount}
       />
+
+      {/* Modifier Selection Modal */}
+      <AnimatePresence>
+        {modifierItem && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 z-50"
+              onClick={() => setModifierItem(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 40 }}
+              className="fixed inset-x-4 top-[10%] z-50 mx-auto max-w-lg bg-card rounded-2xl shadow-xl overflow-hidden"
+            >
+              <div className="p-5 border-b border-zomato-border flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-lg text-zomato-dark">{modifierItem.item_name}</h3>
+                  <p className="text-sm text-zomato-gray">Customize your order</p>
+                </div>
+                <button onClick={() => setModifierItem(null)} className="p-1 rounded-lg hover:bg-gray-100">
+                  <X className="h-5 w-5 text-zomato-gray" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-5 max-h-[60vh] overflow-y-auto">
+                {/* Size */}
+                {modData.sizes && modData.sizes.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-zomato-dark mb-2">Size</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {modData.sizes.map((s) => (
+                        <button
+                          key={s.name}
+                          onClick={() => setSelSize(s.name)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                            selSize === s.name
+                              ? 'bg-primary text-white border-primary'
+                              : 'bg-white text-zomato-dark border-zomato-border hover:border-primary/40'
+                          }`}
+                        >
+                          {s.name} {s.price_add > 0 && <span className="opacity-70">+₹{s.price_add}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Spice Level */}
+                {modData.spice_levels && modData.spice_levels.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-zomato-dark mb-2">Spice Level</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {modData.spice_levels.map((s) => (
+                        <button
+                          key={s.name}
+                          onClick={() => setSelSpice(s.name)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                            selSpice === s.name
+                              ? 'bg-primary text-white border-primary'
+                              : 'bg-white text-zomato-dark border-zomato-border hover:border-primary/40'
+                          }`}
+                        >
+                          {s.name} {s.price_add > 0 && <span className="opacity-70">+₹{s.price_add}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Add-ons */}
+                {modData.addons && modData.addons.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-zomato-dark mb-2">Add-ons</h4>
+                    <div className="space-y-2">
+                      {modData.addons.map((a) => (
+                        <button
+                          key={a.name}
+                          onClick={() => toggleAddon(a.name)}
+                          className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg text-sm border transition-colors ${
+                            selAddons.includes(a.name)
+                              ? 'bg-primary/5 border-primary text-primary font-medium'
+                              : 'bg-white text-zomato-dark border-zomato-border hover:border-primary/40'
+                          }`}
+                        >
+                          <span>{a.name}</span>
+                          <span className="font-semibold">+₹{a.price_add}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-5 border-t border-zomato-border">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm text-zomato-gray">Item total</span>
+                  <span className="font-bold text-lg text-zomato-dark">
+                    {formatPrice(modifierItem.price + modExtraPrice)}
+                  </span>
+                </div>
+                <button
+                  onClick={addWithModifiers}
+                  className="w-full flex items-center justify-center gap-2 bg-primary text-white py-3.5 rounded-xl text-sm font-semibold hover:bg-primary-600 transition-colors"
+                >
+                  <Plus className="h-4 w-4" /> Add to Order
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

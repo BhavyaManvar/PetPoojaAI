@@ -20,6 +20,7 @@ from typing import Optional
 import pandas as pd
 
 from app.utils.fuzzy_match import best_match
+from app.services.modifier_config import calculate_modifier_price, format_modifier_text
 
 _lock = threading.Lock()
 _order_counter: int = 1000
@@ -230,7 +231,16 @@ def create_order(
         unit_price = float(row.iloc[0]["price"])
         item_name = str(row.iloc[0]["item_name"])
         category = str(row.iloc[0].get("category", ""))
-        line_total = unit_price * qty
+
+        # Calculate modifier price
+        modifiers = line.get("modifiers") or {}
+        if isinstance(modifiers, dict):
+            mod_price = calculate_modifier_price(category, modifiers)
+        else:
+            mod_price = 0.0
+        effective_price = unit_price + mod_price
+
+        line_total = effective_price * qty
         total_price += line_total
         line_items.append({
             "item_id": int(line["item_id"]),
@@ -238,6 +248,8 @@ def create_order(
             "category": category,
             "qty": qty,
             "unit_price": unit_price,
+            "modifier_price": round(mod_price, 2),
+            "modifiers": modifiers if modifiers else None,
             "line_total": round(line_total, 2),
         })
 

@@ -34,7 +34,11 @@ export default function CheckoutPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: cart.map((c) => ({ item_id: c.item_id, qty: c.qty })),
+          items: cart.map((c) => ({
+            item_id: c.item_id,
+            qty: c.qty,
+            ...(c.modifiers ? { modifiers: c.modifiers } : {}),
+          })),
           order_source: 'online',
         }),
       });

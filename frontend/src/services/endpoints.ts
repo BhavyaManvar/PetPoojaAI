@@ -19,4 +19,12 @@ export const ENDPOINTS = {
   orderList: `${API_BASE}/order/list`,
   orderSeed: `${API_BASE}/order/seed`,
   aiChat: `${API_BASE}/ai/chat`,
+  inventoryItems: `${API_BASE}/inventory/items`,
+  inventorySummary: `${API_BASE}/inventory/summary`,
+  inventoryAlerts: `${API_BASE}/inventory/alerts`,
+  kotList: `${API_BASE}/kot/list`,
+  kotActive: `${API_BASE}/kot/active`,
+  kotStats: `${API_BASE}/kot/stats`,
+  kotDetail: (kotId: string) => `${API_BASE}/kot/${kotId}`,
+  kotUpdateStatus: (kotId: string) => `${API_BASE}/kot/${kotId}/status`,
 } as const;

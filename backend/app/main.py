@@ -2,6 +2,11 @@
 
 import logging
 import time
+from pathlib import Path
+
+from dotenv import load_dotenv
+_env_file = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(_env_file, override=True)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +21,8 @@ from app.api.routes_price import router as price_router
 from app.api.routes_ai import router as ai_router
 from app.api.routes_auth import router as auth_router
 from app.api.routes_call import router as call_router
+from app.api.routes_inventory import router as inventory_router
+from app.api.routes_kot import router as kot_router
 from app.config import settings
 
 logging.basicConfig(
@@ -68,6 +75,8 @@ app.include_router(price_router, prefix="/price", tags=["Price Optimization"])
 app.include_router(ai_router, prefix="/ai", tags=["AI Strategy & Insights"])
 app.include_router(auth_router, prefix="/auth", tags=["Auth"])
 app.include_router(call_router, prefix="/call", tags=["Phone Call Agent"])
+app.include_router(inventory_router, prefix="/inventory", tags=["Inventory Signals"])
+app.include_router(kot_router, prefix="/kot", tags=["Kitchen Order Tickets"])
 
 
 @app.get("/health")

@@ -18,6 +18,8 @@ from app.services.order_service import (
     get_order_count,
     seed_demo_orders,
 )
+from app.services.kot_service import generate_kot, get_kot_by_order_id
+from app.services.modifier_config import get_modifiers_for_category
 
 router = APIRouter()
 
@@ -28,8 +30,18 @@ async def push_order(
     dfs: dict[str, pd.DataFrame] = Depends(get_dataframes),
 ):
     """Push a confirmed order to the PoS system."""
-    items = [{"item_id": line.item_id, "qty": line.qty} for line in payload.items]
+    items = []
+    for line in payload.items:
+        item = {"item_id": line.item_id, "qty": line.qty}
+        if line.modifiers:
+            item["modifiers"] = line.modifiers.model_dump(exclude_none=True)
+        items.append(item)
     result = create_order(items, dfs["menu"], order_source=payload.order_source)
+
+    # Auto-generate KOT
+    kot = generate_kot(result)
+    result["kot_id"] = kot["kot_id"]
+
     return OrderResponse(**result)
 
 
@@ -43,6 +55,14 @@ async def list_orders(
         orders=[OrderResponse(**o) for o in orders],
         total=get_order_count(),
     )
+
+
+@router.get("/modifiers")
+async def get_modifiers(
+    category: str = Query(..., description="Menu item category"),
+):
+    """Get available modifiers (sizes, spice levels, add-ons) for a category."""
+    return get_modifiers_for_category(category)
 
 
 @router.get("/{order_id}", response_model=OrderResponse)

@@ -47,24 +47,32 @@ RULES:
 11. Always mention prices in Rupees (₹).
 12. Be proactive - suggest popular items if the customer seems unsure.
 
+MODIFIER HANDLING:
+- For Pizza, Burgers, Beverages, and Shakes: ASK about size preference (Regular/Medium/Large).
+- For spicy items (curries, biryanis, starters, Chinese): ASK about spice level (Mild/Medium/Spicy/Extra Spicy).
+- Suggest relevant add-ons (Extra Cheese for pizza +₹40, Extra Patty for burgers +₹60, etc.)
+- Pass the size, spice, and addons parameters when calling add_to_order.
+- If customer doesn't specify, default to Regular size and Medium spice — don't keep asking.
+
 EXAMPLE CONVERSATION:
 Customer: "I want two pizzas and a coke"
 You: *search_menu("pizza")* → Found Margherita Pizza, Paneer Tikka Pizza
 You: "We have Margherita Pizza for ₹299 and Paneer Tikka Pizza for ₹349. Which one would you like?"
-Customer: "Margherita"
-You: *add_to_order("Margherita Pizza", 2)* → Added + combo suggestion
-You: "Added 2 Margherita Pizzas! I think you should also try Garlic Bread for just 120 rupees. It pairs perfectly! Would you like to add it?"
+Customer: "Margherita, large, extra spicy with extra cheese"
+You: *add_to_order("Margherita Pizza", 2, "Large", "Extra Spicy", "Extra Cheese")* → Added
+You: "Added 2 Large Extra Spicy Margherita Pizzas with Extra Cheese! That's ₹399 each. Your total is ₹798. I also recommend Garlic Bread for just ₹120. Want to add it?"
 Customer: "Yes sure"
-You: *add_to_order("Garlic Bread", 1)* → Added
+You: *add_to_order("Garlic Bread", 1)*
 You: "Added 1 Garlic Bread! Now let me get that Coke."
-You: *add_to_order("Coke", 1)*
-You: "Added 1 Coke. Your total is ₹718. Anything else?"
+You: *search_menu("coke")* → Found Coke
+You: *add_to_order("Coke", 1, "Large")*
+You: "Added 1 Large Coke. Your total is ₹958. Anything else?"
 Customer: "No, that's it"
 You: *get_order_summary()* → review
-You: "Your order: 2x Margherita Pizza, 1x Garlic Bread, and 1x Coke. Total ₹718. Shall I confirm?"
+You: "Your order: 2x Large Margherita Pizza (Extra Spicy, +Extra Cheese), 1x Garlic Bread, and 1x Large Coke. Total ₹958. Shall I confirm?"
 Customer: "Yes"
-You: *confirm_order()* → confirmed
-You: "Order confirmed! Your food will be ready soon. Thank you!"
+You: *confirm_order()* → confirmed with KOT
+You: "Order confirmed! Kitchen ticket sent. Your food will be ready in about 18 minutes. Thank you!"
 """
 
 TOOLS = [
@@ -89,7 +97,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "add_to_order",
-            "description": "Add a food item to the customer's current order",
+            "description": "Add a food item to the customer's current order with optional modifiers (size, spice level, add-ons)",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -100,6 +108,18 @@ TOOLS = [
                     "quantity": {
                         "type": "integer",
                         "description": "Number of items to add (default 1)",
+                    },
+                    "size": {
+                        "type": "string",
+                        "description": "Size preference: Regular, Medium, Large, Small, Double. Leave empty for default.",
+                    },
+                    "spice": {
+                        "type": "string",
+                        "description": "Spice level: Mild, Medium, Spicy, Extra Spicy. Leave empty for default.",
+                    },
+                    "addons": {
+                        "type": "string",
+                        "description": "Comma-separated add-ons e.g. 'Extra Cheese, Mushrooms'. Leave empty for none.",
                     },
                 },
                 "required": ["item_name"],

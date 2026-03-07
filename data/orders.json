@@ -149,5 +149,67 @@
       }
     ],
     "delivery_address": "Fifty four"
+  },
+  {
+    "order_id": 1006,
+    "status": "confirmed",
+    "total_price": 280.0,
+    "order_source": "phone_call",
+    "created_at": "2026-03-07T11:32:59.840788+00:00",
+    "delivery_address": "Nirma University",
+    "items": [
+      {
+        "item_id": 2,
+        "item_name": "Margherita Pizza",
+        "category": "Pizza",
+        "qty": 1,
+        "unit_price": 280.0,
+        "line_total": 280.0
+      }
+    ]
+  },
+  {
+    "order_id": 1007,
+    "status": "confirmed",
+    "total_price": 120.0,
+    "order_source": "phone_call",
+    "created_at": "2026-03-07T11:34:27.962596+00:00",
+    "delivery_address": "Society one, two, three",
+    "items": [
+      {
+        "item_id": 39,
+        "item_name": "Coke",
+        "category": "Beverages",
+        "qty": 2,
+        "unit_price": 60.0,
+        "line_total": 120.0
+      }
+    ]
+  },
+  {
+    "order_id": 1008,
+    "status": "confirmed",
+    "total_price": 980.0,
+    "order_source": "online",
+    "created_at": "2026-03-07T11:35:39.266997+00:00",
+    "delivery_address": "",
+    "items": [
+      {
+        "item_id": 1,
+        "item_name": "Paneer Tikka Pizza",
+        "category": "Pizza",
+        "qty": 2,
+        "unit_price": 350.0,
+        "modifier_price": 140.0,
+        "modifiers": {
+          "size": "Large",
+          "spice": "Spicy",
+          "addons": [
+            "Extra Cheese"
+          ]
+        },
+        "line_total": 980.0
+      }
+    ]
   }
 ]

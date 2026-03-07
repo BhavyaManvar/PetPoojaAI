@@ -14,6 +14,8 @@ import {
   DollarSign,
   ShoppingCart,
   Bot,
+  Package,
+  ChefHat,
 } from "lucide-react";
 import { cn } from "@/utils/helpers";
 import { useAuth } from "@/contexts/AuthContext";
@@ -26,6 +28,8 @@ const NAV_ITEMS = [
   { href: "/admin/revenue-insights", label: "Revenue Insights", icon: TrendingUp },
   { href: "/admin/combo-insights", label: "Combo Insights", icon: ShoppingCart },
   { href: "/admin/price-optimization", label: "Price Optimization", icon: DollarSign },
+  { href: "/admin/inventory-signals", label: "Inventory Signals", icon: Package },
+  { href: "/admin/kitchen-display", label: "Kitchen Display (KOT)", icon: ChefHat },
   { href: "/admin/order-history", label: "Order History", icon: ClipboardList },
   { href: "/admin/ai-assistant", label: "AI Assistant", icon: Bot },
   { href: "/admin/staff", label: "Staff Management", icon: Users, adminOnly: true },

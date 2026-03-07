@@ -1,15 +1,24 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Minus, Plus, ChevronRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { CartItem } from '@/hooks/useCart';
+import type { CartItem, CartModifiers } from '@/hooks/useCart';
 
 interface CartDrawerProps {
   open: boolean;
   onClose: () => void;
   cart: CartItem[];
-  addItem: (item: { item_id: number; item_name: string; price: number }) => void;
-  removeItem: (itemId: number) => void;
+  addItem: (item: { item_id: number; item_name: string; price: number; modifiers?: CartModifiers; modifier_price?: number }) => void;
+  removeItem: (itemId: number, modifiers?: CartModifiers) => void;
   totalAmount: number;
+}
+
+function modifierLabel(m?: CartModifiers): string {
+  if (!m) return '';
+  const parts: string[] = [];
+  if (m.size) parts.push(m.size);
+  if (m.spice) parts.push(m.spice);
+  (m.addons || []).forEach((a) => parts.push(`+${a}`));
+  return parts.join(', ');
 }
 
 export default function CartDrawer({ open, onClose, cart, addItem, removeItem, totalAmount }: CartDrawerProps) {
@@ -47,30 +56,37 @@ export default function CartDrawer({ open, onClose, cart, addItem, removeItem, t
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {cart.map((c) => (
-                    <div key={c.item_id} className="flex items-center justify-between gap-3 pb-3 border-b border-zomato-border last:border-0">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-zomato-dark truncate">{c.item_name}</p>
-                        <p className="text-xs text-zomato-gray">{formatPrice(c.price)}</p>
+                  {cart.map((c, idx) => {
+                    const modText = modifierLabel(c.modifiers);
+                    const effectivePrice = c.price + (c.modifier_price || 0);
+                    return (
+                      <div key={`${c.item_id}-${idx}`} className="flex items-center justify-between gap-3 pb-3 border-b border-zomato-border last:border-0">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-zomato-dark truncate">{c.item_name}</p>
+                          {modText && (
+                            <p className="text-[11px] text-primary font-medium mt-0.5">{modText}</p>
+                          )}
+                          <p className="text-xs text-zomato-gray">{formatPrice(effectivePrice)}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => removeItem(c.item_id, c.modifiers)}
+                            className="h-7 w-7 flex items-center justify-center rounded bg-gray-100 text-zomato-gray"
+                          >
+                            <Minus className="h-3.5 w-3.5" />
+                          </button>
+                          <span className="text-sm font-bold w-5 text-center">{c.qty}</span>
+                          <button
+                            onClick={() => addItem({ item_id: c.item_id, item_name: c.item_name, price: c.price, modifiers: c.modifiers, modifier_price: c.modifier_price })}
+                            className="h-7 w-7 flex items-center justify-center rounded bg-primary text-white"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <p className="text-sm font-semibold w-16 text-right">{formatPrice(effectivePrice * c.qty)}</p>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          onClick={() => removeItem(c.item_id)}
-                          className="h-7 w-7 flex items-center justify-center rounded bg-gray-100 text-zomato-gray"
-                        >
-                          <Minus className="h-3.5 w-3.5" />
-                        </button>
-                        <span className="text-sm font-bold w-5 text-center">{c.qty}</span>
-                        <button
-                          onClick={() => addItem({ item_id: c.item_id, item_name: c.item_name, price: c.price })}
-                          className="h-7 w-7 flex items-center justify-center rounded bg-primary text-white"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                      <p className="text-sm font-semibold w-16 text-right">{formatPrice(c.price * c.qty)}</p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -32,6 +32,12 @@ from rapidfuzz import fuzz, process as fuzz_process
 from app.dependencies import get_dataframes
 from app.services.order_service import create_order, update_order
 from app.services.upsell_engine import recommend_addon
+from app.services.kot_service import generate_kot
+from app.services.modifier_config import (
+    get_modifiers_for_category,
+    calculate_modifier_price,
+    format_modifier_text,
+)
 from app.services.sarvam_service import (
     detect_language,
     has_indic_script,
@@ -275,7 +281,7 @@ def _get_combo_deals_for_item(item_name: str, menu_df: pd.DataFrame, session: di
 
 # ── Session helpers ───────────────────────────────────────────────────────────
 
-async def _add_to_order(call_id: str, item_name: str, quantity: int, menu_df: pd.DataFrame) -> dict:
+async def _add_to_order(call_id: str, item_name: str, quantity: int, menu_df: pd.DataFrame, modifiers: dict | None = None) -> dict:
     session = _get_session(call_id)
 
     # Detect customer language from item_name text
@@ -311,24 +317,41 @@ async def _add_to_order(call_id: str, item_name: str, quantity: int, menu_df: pd
     row = menu_df.iloc[idx]
     item_id = int(row["item_id"])
     price = float(row["price"])
+    category = str(row.get("category", ""))
 
-    existing = next((i for i in session["items"] if i["item_id"] == item_id), None)
+    # Calculate modifier price
+    mod_price = 0.0
+    if modifiers:
+        mod_price = calculate_modifier_price(category, modifiers)
+
+    effective_price = price + mod_price
+
+    existing = next((i for i in session["items"] if i["item_id"] == item_id and i.get("modifiers") == modifiers), None)
     if existing:
         existing["qty"] += quantity
-        existing["line_total"] = round(existing["unit_price"] * existing["qty"], 2)
+        existing["line_total"] = round(existing["effective_price"] * existing["qty"], 2)
     else:
         session["items"].append({
             "item_id": item_id,
             "item_name": matched_name,
+            "category": category,
             "qty": quantity,
             "unit_price": price,
-            "line_total": round(price * quantity, 2),
+            "modifier_price": mod_price,
+            "effective_price": effective_price,
+            "modifiers": modifiers,
+            "line_total": round(effective_price * quantity, 2),
         })
 
     session["total"] = round(sum(i["line_total"] for i in session["items"]), 2)
 
+    # Build response message
+    mod_text = format_modifier_text(modifiers) if modifiers else ""
+    item_desc = f"{matched_name} ({mod_text})" if mod_text else matched_name
+    price_text = f"{_rupees(effective_price)}" if mod_price > 0 else f"{_rupees(price)}"
+
     msg = (
-        f"Added {quantity} {matched_name} at {_rupees(price)} each to your order. "
+        f"Added {quantity} {item_desc} at {price_text} each to your order. "
         f"Your current total is {_rupees(session['total'])}."
     )
 
@@ -423,27 +446,50 @@ def _confirm_order(call_id: str, menu_df: pd.DataFrame) -> dict:
             ),
         }
 
-    items_for_order = [{"item_id": i["item_id"], "qty": i["qty"]} for i in session["items"]]
+    items_for_order = [
+        {
+            "item_id": i["item_id"],
+            "qty": i["qty"],
+            "modifiers": i.get("modifiers"),
+        }
+        for i in session["items"]
+    ]
     order = create_order(items_for_order, menu_df, order_source="phone_call")
     order_id = order["order_id"]
     total = order["total_price"]
     num_items = sum(i["qty"] for i in session["items"])
-    items_text = ", ".join(f"{i['qty']} {i['item_name']}" for i in session["items"])
     address = session["delivery_address"]
 
     # Save address to the persisted order
     update_order(order_id, {"delivery_address": address})
 
+    # Auto-generate KOT (Kitchen Order Ticket)
+    kot = generate_kot(order)
+    kot_id = kot["kot_id"]
+    logger.info("KOT %s generated for order %s", kot_id, order_id)
+
+    # Build items text with modifiers
+    items_parts = []
+    for i in session["items"]:
+        mod_text = format_modifier_text(i.get("modifiers") or {})
+        desc = f"{i['qty']} {i['item_name']}"
+        if mod_text:
+            desc += f" ({mod_text})"
+        items_parts.append(desc)
+    items_text = ", ".join(items_parts)
+
     # Estimate delivery time based on order size
-    est_minutes = 15 + (num_items * 3)
+    est_minutes = max(kot.get("estimated_prep_min", 15), 15) + (num_items * 2)
 
     _call_sessions.pop(call_id, None)
 
     return {
         "success": True,
         "order_id": order_id,
+        "kot_id": kot_id,
         "message": (
             f"Your order number {order_id} is confirmed! "
+            f"Kitchen ticket {kot_id} has been sent to the kitchen. "
             f"You ordered {items_text} for a total of {_rupees(total)}. "
             f"We will deliver it to {address}. "
             f"Estimated delivery time is {est_minutes} minutes. "
@@ -514,7 +560,21 @@ async def _dispatch_function(
         return "I couldn't find any matching items. Could you try a different name or ask for our menu categories?"
 
     if func_name == "add_to_order":
-        r = await _add_to_order(call_id, params.get("item_name", ""), int(params.get("quantity", 1)), menu_df)
+        # Extract modifiers from params
+        modifiers = {}
+        size = params.get("size", "")
+        spice = params.get("spice", "")
+        addons_raw = params.get("addons", "")
+        if size:
+            modifiers["size"] = size
+        if spice:
+            modifiers["spice"] = spice
+        if addons_raw:
+            if isinstance(addons_raw, list):
+                modifiers["addons"] = addons_raw
+            elif isinstance(addons_raw, str):
+                modifiers["addons"] = [a.strip() for a in addons_raw.split(",") if a.strip()]
+        r = await _add_to_order(call_id, params.get("item_name", ""), int(params.get("quantity", 1)), menu_df, modifiers or None)
         return r["message"]
 
     if func_name == "remove_from_order":

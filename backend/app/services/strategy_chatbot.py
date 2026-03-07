@@ -1,7 +1,7 @@
-"""AI Strategy Chatbot — Gemini-powered advisor for restaurant owners.
+"""AI Strategy Chatbot — Groq-powered advisor for restaurant owners.
 
-Uses dataset-derived analytics as context for Gemini API prompts.
-Falls back to rule-based responses when Gemini API key is not configured.
+Uses dataset-derived analytics as context for Groq API prompts.
+Falls back to rule-based responses when API key is not configured.
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import pandas as pd
 from app.services.revenue_engine import classify_menu_items, find_hidden_stars, get_risk_items
 from app.services.combo_engine import get_top_combos
 from app.services.price_engine import get_price_recommendations, get_price_summary
+from app.services.inventory_engine import get_inventory_summary, get_inventory_for_chatbot, get_inventory
 
 
 def _build_context(menu_df: pd.DataFrame, order_items_df: pd.DataFrame) -> dict[str, Any]:
@@ -32,6 +33,9 @@ def _build_context(menu_df: pd.DataFrame, order_items_df: pd.DataFrame) -> dict[
     plowhorses = [i for i in classified if i.get("menu_class") == "Plow Horse"]
     dogs = [i for i in classified if i.get("menu_class") == "Dog"]
 
+    inv_summary = get_inventory_summary(menu_df, order_items_df)
+    inv_text = get_inventory_for_chatbot(menu_df, order_items_df)
+
     return {
         "stars": stars,
         "puzzles": puzzles,
@@ -43,6 +47,8 @@ def _build_context(menu_df: pd.DataFrame, order_items_df: pd.DataFrame) -> dict[
         "price_recs": price_recs,
         "price_summary": price_summary,
         "total_items": len(classified),
+        "inventory_summary": inv_summary,
+        "inventory_text": inv_text,
     }
 
 
@@ -58,6 +64,7 @@ _PATTERNS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"(hidden.?star|untap|potential|opportunity)", re.I), "hidden"),
     (re.compile(r"(risk|danger|warning|concern)", re.I), "risk"),
     (re.compile(r"(summary|overview|health|status|report)", re.I), "summary"),
+    (re.compile(r"(inventory|stock|restock|reorder|stockout|out.?of.?stock|overstock|dead.?stock)", re.I), "inventory"),
 ]
 
 
@@ -180,14 +187,15 @@ def chat(query: str, menu_df: pd.DataFrame, order_items_df: pd.DataFrame) -> dic
     ctx = _build_context(menu_df, order_items_df)
     intent = _detect_intent(query)
 
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    if gemini_key:
+    grok_key = os.getenv("GROK_API_KEY", "")
+    if grok_key:
         try:
-            gemini_response = _ask_gemini(query, ctx, gemini_key)
-            if gemini_response:
-                return {"query": query, "response": gemini_response, "intent": intent}
+            grok_response = _ask_grok(query, ctx, grok_key)
+            logging.info("Groq response received, length: %d", len(grok_response or ""))
+            if grok_response:
+                return {"query": query, "response": grok_response, "intent": intent}
         except Exception as exc:
-            logging.warning("Gemini API failed, falling back to rule-based: %s", exc)
+            logging.warning("Groq API failed, falling back to rule-based: %s", exc)
 
     # Fallback to rule-based
     response = generate_response(query, ctx)
@@ -238,25 +246,49 @@ def _format_context_for_prompt(ctx: dict[str, Any]) -> str:
     lines.append(f"  - Items optimally priced: {ps.get('items_optimal', 0)}")
     lines.append(f"  - Estimated monthly uplift: ₹{ps.get('total_monthly_uplift', 0):,.0f}")
 
+    # Inventory signals
+    if ctx.get("inventory_text"):
+        lines.append(f"\n{ctx['inventory_text']}")
+
     return "\n".join(lines)
 
 
-def _ask_gemini(query: str, ctx: dict[str, Any], api_key: str) -> str | None:
-    """Send a contextual prompt to Gemini and return the response."""
-    import google.generativeai as genai
-
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+def _ask_grok(query: str, ctx: dict[str, Any], api_key: str) -> str | None:
+    """Send a contextual prompt to Groq API and return the response."""
+    import httpx
 
     context_text = _format_context_for_prompt(ctx)
 
-    prompt = f"""You are an AI business strategist for a restaurant owner. You have access to their real analytics data below.
+    system_prompt = (
+        "You are an AI business strategist for a restaurant owner. "
+        "You have access to their real analytics data. "
+        "Provide clear, actionable, data-driven recommendations. "
+        "Reference specific menu items and numbers from the data. "
+        "Keep the response concise but insightful. "
+        "Use bullet points for action items. Do not use markdown headers."
+    )
 
-{context_text}
+    user_prompt = f"""{context_text}
 
-User question: {query}
+User question: {query}"""
 
-Provide a clear, actionable, data-driven recommendation. Reference specific menu items and numbers from the data above. Keep the response concise but insightful. Use bullet points for action items. Do not use markdown headers."""
-
-    response = model.generate_content(prompt)
-    return response.text if response and response.text else None
+    resp = httpx.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "llama-3.3-70b-versatile",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.7,
+            "max_tokens": 1024,
+        },
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]

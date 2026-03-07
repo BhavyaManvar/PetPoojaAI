@@ -7,6 +7,7 @@ export const API = {
       : `${API_BASE}/menu/items`,
   orderPush: `${API_BASE}/order/push`,
   orderList: (limit = 20) => `${API_BASE}/order/list?limit=${limit}`,
+  orderModifiers: (category: string) => `${API_BASE}/order/modifiers?category=${encodeURIComponent(category)}`,
   authVerify: `${API_BASE}/auth/verify`,
   voiceChat: `${API_BASE}/voice/chat`,
   upsellForItem: (id: number) => `${API_BASE}/combos/upsell/for-item?item_id=${id}`,
